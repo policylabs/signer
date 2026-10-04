@@ -34,15 +34,50 @@ func WithSigstoreRootsData(data []byte) BundleOptsFunc {
 			return err
 		}
 
+		// Verifiers are built on first use, not here. Building one
+		// resolves the instance's trusted root, which can go to TUF over
+		// the network, and a verifier that only ever checks key or SPIFFE
+		// signatures must never pay for that.
 		for i := range roots.Roots {
-			ver, err := v.BuildSigstoreVerifier(&roots.Roots[i])
-			if err != nil {
-				return fmt.Errorf("building verifier %d: %w", i, err)
-			}
-			v.Verifiers = append(v.Verifiers, ver)
+			v.Verifiers = append(v.Verifiers, &lazyVerifier{
+				conf:  &roots.Roots[i],
+				build: v.BuildSigstoreVerifier,
+			})
 		}
 		return nil
 	}
+}
+
+// lazyVerifier defers building the sigstore verifier for an instance until
+// a bundle is actually verified against it. The build runs once; its
+// result (or error) is reused by every later verification.
+type lazyVerifier struct {
+	conf  *sigstore.InstanceConfig
+	build func(*sigstore.InstanceConfig) (VerifyCapable, error)
+
+	once     sync.Once
+	verifier VerifyCapable
+	err      error
+}
+
+// resolve returns the built verifier, building it on the first call.
+func (l *lazyVerifier) resolve() (VerifyCapable, error) {
+	l.once.Do(func() {
+		l.verifier, l.err = l.build(l.conf)
+	})
+	if l.err != nil {
+		return nil, fmt.Errorf("building verifier for sigstore instance %q: %w", l.conf.ID, l.err)
+	}
+	return l.verifier, nil
+}
+
+// Verify builds the underlying verifier if needed and delegates to it.
+func (l *lazyVerifier) Verify(entity verify.SignedEntity, policy verify.PolicyBuilder) (*verify.VerificationResult, error) {
+	v, err := l.resolve()
+	if err != nil {
+		return nil, err
+	}
+	return v.Verify(entity, policy)
 }
 
 // WithSpiffeVerifier installs the verifier used when a bundle carries a
@@ -274,6 +309,17 @@ func (bv *DefaultVerifier) buildVerifierConfig(conf *sigstore.InstanceConfig) []
 func (bv *DefaultVerifier) RunVerification(
 	opts *options.SigstoreVerification, sigstoreVerifier VerifyCapable, bndl *bundle.Bundle,
 ) (*verify.VerificationResult, error) {
+	// Build a deferred verifier here, outside the verification itself, so
+	// that failing to build it (trusted root unreachable, bad instance
+	// config) reads as "could not run", not as a failed verification.
+	if lazy, ok := sigstoreVerifier.(*lazyVerifier); ok {
+		built, err := lazy.resolve()
+		if err != nil {
+			return nil, err
+		}
+		sigstoreVerifier = built
+	}
+
 	// If this is a DSSE envelope, check it as a payload
 	dsse := bndl.GetDsseEnvelope()
 	if dsse != nil {
