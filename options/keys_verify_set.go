@@ -6,12 +6,9 @@ package options
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/carabiner-dev/command"
 	"github.com/carabiner-dev/command/keys"
-
-	"github.com/policylabs/signer/key"
 )
 
 // KeysVerify is a command.OptionsSet for verify-side public-key
@@ -27,7 +24,6 @@ import (
 // fallback added when the per-call keys argument is empty.
 type KeysVerify struct {
 	*keys.Options
-	extraKeys []key.PublicKeyProvider
 }
 
 var _ command.OptionsSet = (*KeysVerify)(nil)
@@ -36,37 +32,6 @@ var _ command.OptionsSet = (*KeysVerify)(nil)
 // keys.Options ready to bind flags.
 func DefaultKeysVerify() *KeysVerify {
 	return &KeysVerify{Options: &keys.Options{}}
-}
-
-// AddKeys appends pre-parsed key providers. These are included in the
-// result of ParseKeys alongside any keys parsed from file paths.
-//
-// TODO: AddKeys and ParseKeys shadow the embedded keys.Options methods
-// because upstream command still builds against the key types of the
-// old github.com/carabiner-dev/signer module path, which are distinct
-// from this module's. Drop both once command imports
-// github.com/policylabs/signer/key.
-func (k *KeysVerify) AddKeys(providers ...key.PublicKeyProvider) {
-	k.extraKeys = append(k.extraKeys, providers...)
-}
-
-// ParseKeys parses the key files and returns a slice of public key providers.
-// Any keys previously added via AddKeys are included in the result.
-func (k *KeysVerify) ParseKeys() ([]key.PublicKeyProvider, error) {
-	parser := key.NewParser()
-	r := append([]key.PublicKeyProvider{}, k.extraKeys...)
-	for _, path := range k.PublicKeyPaths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("reading key file: %w", err)
-		}
-		p, err := parser.ParsePublicKeyProvider(data)
-		if err != nil {
-			return nil, fmt.Errorf("parsing key %q: %w", path, err)
-		}
-		r = append(r, p)
-	}
-	return r, nil
 }
 
 // ApplyToVerifier parses every configured public-key file (and any
