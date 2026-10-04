@@ -15,6 +15,6 @@ We are trying to keep the signer dependency list as short as we can. So if you
 write an STS provider:
 
 - If it adds very few dependencies (note "very" is __VERY__ few and lighweight), feel free to add it here.
-- It it has a heaver dependency tree, add it to [carabiner-dev/signer-extras](https://github.com/carabiner-dev/signer-extras/).
+- It it has a heaver dependency tree, add it to [policylabs/signer-extras](https://github.com/policylabs/signer-extras/).
 
 Thanks!
