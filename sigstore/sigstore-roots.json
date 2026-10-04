@@ -4,7 +4,7 @@
       "id": "sigstore",
       "issuer-org": "sigstore.dev",
       "tuf-root-url": "https://tuf-repo-cdn.sigstore.dev",
-      "trusted-root-snapshot": "2026-07-18T00:00:00Z",
+      "trusted-root-snapshot": "2026-10-04T00:00:00Z",
       "signing-config": {
         "mediaType": "application/vnd.dev.sigstore.signingconfig.v0.2+json",
         "caUrls": [
@@ -71,7 +71,7 @@
       "id": "github",
       "issuer-org": "GitHub, Inc.",
       "tuf-root-url": "https://tuf-repo.github.com",
-      "trusted-root-snapshot": "2026-07-18T00:00:00Z",
+      "trusted-root-snapshot": "2026-10-04T00:00:00Z",
       "signing-config": {
         "mediaType": "application/vnd.dev.sigstore.signingconfig.v0.2+json",
         "caUrls": [

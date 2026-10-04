@@ -17,7 +17,12 @@ import (
 // DefaultTrustedRootMaxAge is the staleness window for an embedded trusted
 // root. Once the instance's snapshot date is older than this, TrustedRoot
 // refreshes the trust material from TUF instead of using the embed.
-const DefaultTrustedRootMaxAge = 30 * 24 * time.Hour
+//
+// The window is sized for binaries that pin a signer release and never get
+// a fresher embed: upstream trusted roots publish new anchors well before
+// they are used, so an embed stays usable for months. A shorter window
+// only sends every such binary to the network sooner.
+const DefaultTrustedRootMaxAge = 90 * 24 * time.Hour
 
 // trustedRootOptions is the resolved option set for a TrustedRoot call.
 type trustedRootOptions struct {

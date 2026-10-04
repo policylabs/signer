@@ -5,6 +5,7 @@ package tuf
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,22 +48,18 @@ type TufOptions struct {
 // disables proactive refresh — sigstore-go still re-fetches on its
 // own when metadata has actually expired, so this is safe by default.
 func GetClient(opts *TufOptions) (*tuf.Client, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		// Fall back to using a TUF repository in the temp location
-		home = os.TempDir()
-	}
-
-	cachePath := filepath.Join(home, ".sigstore", "root")
+	cachePath := defaultCachePath()
+	cacheDir := filepath.Join(cachePath, tuf.URLToPath(opts.TufRootURL))
+	f := Defaultfetcher()
 	tufOpts := &tuf.Options{
 		CacheValidity:             0,
 		ForceCache:                cacheHasMetadata(cachePath, opts.TufRootURL),
-		Root:                      opts.RootData,
+		Root:                      bootstrapRoot(cacheDir, opts.RootData, f, opts.TufRootURL),
 		CachePath:                 cachePath,
 		RepositoryBaseURL:         opts.TufRootURL,
 		DisableLocalCache:         false,
 		DisableConsistentSnapshot: false,
-		Fetcher:                   Defaultfetcher(),
+		Fetcher:                   f,
 	}
 
 	var (
@@ -73,6 +70,12 @@ func GetClient(opts *TufOptions) (*tuf.Client, error) {
 	for attempt := 1; attempt <= tufInitMaxAttempts; attempt++ {
 		client, lastErr = tuf.New(tufOpts)
 		if lastErr == nil {
+			// The client may have just rotated the cached root.json past
+			// what was verified above. Walk the chain again now, while the
+			// repository is known to be reachable, so the versioned roots
+			// are on disk and the next client creation can verify the
+			// cached root without the network.
+			bootstrapRoot(cacheDir, opts.RootData, f, opts.TufRootURL)
 			return client, nil
 		}
 		if attempt < tufInitMaxAttempts {
@@ -98,6 +101,28 @@ func GetRoot(opts *TufOptions) ([]byte, error) {
 	return data, nil
 }
 
+// LatestRoot returns the newest root metadata of the repository that can
+// be verified, link by link, from the bootstrap root in opts. It refreshes
+// the repository first, so the result is current as of the call. It is
+// what a consumer embeds as the next bootstrap root.
+func LatestRoot(opts *TufOptions) ([]byte, error) {
+	if _, err := GetClient(opts); err != nil {
+		return nil, fmt.Errorf("creating TUF client: %w", err)
+	}
+	cacheDir := filepath.Join(defaultCachePath(), tuf.URLToPath(opts.TufRootURL))
+	return bootstrapRoot(cacheDir, opts.RootData, Defaultfetcher(), opts.TufRootURL), nil
+}
+
+// defaultCachePath is the directory holding the per-repository TUF caches.
+func defaultCachePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Fall back to using a TUF repository in the temp location
+		home = os.TempDir()
+	}
+	return filepath.Join(home, ".sigstore", "root")
+}
+
 // cacheHasMetadata reports whether the TUF cache at cachePath/<URL-derived
 // subdir> already contains the root.json metadata file. If so, the caller
 // can safely enable ForceCache to keep sigstore-go from re-fetching over
@@ -120,6 +145,11 @@ func cacheHasMetadata(cachePath, repoURL string) bool {
 	return info.Mode().IsRegular() && info.Size() > 0
 }
 
+// fetchTimeout bounds every HTTP request the TUF client makes. go-tuf's
+// default fetcher uses http.DefaultClient, which has no timeout, so a
+// black-holed proxy would otherwise hang a verification indefinitely.
+const fetchTimeout = 30 * time.Second
+
 // Defaultfetcher returns a default TUF fetcher configured with the bind UA
 func Defaultfetcher() fetcher.Fetcher {
 	f := fetcher.NewDefaultFetcher()
@@ -128,5 +158,6 @@ func Defaultfetcher() fetcher.Fetcher {
 		version.GetVersionInfo().GitVersion, runtime.GOOS, runtime.GOARCH,
 	)
 	f.SetHTTPUserAgent(agentString)
+	f.SetHTTPClient(&http.Client{Timeout: fetchTimeout})
 	return f
 }
