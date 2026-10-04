@@ -4,13 +4,13 @@ go 1.26.0
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
-	github.com/carabiner-dev/attestation v0.2.1
-	github.com/carabiner-dev/command v0.3.2
+	github.com/carabiner-dev/command v0.3.3
 	github.com/go-openapi/strfmt v0.27.2
 	github.com/go-openapi/swag/conv v0.29.2
 	github.com/in-toto/attestation v1.2.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.14.0
 	github.com/nozzle/throttler v0.0.0-20180817012639-2ea982251481
+	github.com/policylabs/attestation v0.3.0
 	github.com/sigstore/protobuf-specs v0.5.2
 	github.com/sigstore/rekor v1.5.4
 	github.com/sigstore/sigstore v1.10.9
@@ -28,7 +28,6 @@ require (
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/carabiner-dev/signer v0.6.2 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.5 // indirect
@@ -67,6 +66,7 @@ require (
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22 // indirect
+	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
