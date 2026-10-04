@@ -23,7 +23,7 @@ var (
 )
 
 // These are the default STS providers, the signer project has additional
-// providers in https://github.com/carabiner-dev/signer-extras which have a
+// providers in https://github.com/policylabs/signer-extras which have a
 // heavier dependency footprint. gcp mints a service-account identity token
 // from $GOOGLE_APPLICATION_CREDENTIALS or the Google Cloud metadata server
 // and, like the others, reports no token when its environment is absent.
