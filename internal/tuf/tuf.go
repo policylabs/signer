@@ -48,13 +48,7 @@ type TufOptions struct {
 // disables proactive refresh — sigstore-go still re-fetches on its
 // own when metadata has actually expired, so this is safe by default.
 func GetClient(opts *TufOptions) (*tuf.Client, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		// Fall back to using a TUF repository in the temp location
-		home = os.TempDir()
-	}
-
-	cachePath := filepath.Join(home, ".sigstore", "root")
+	cachePath := defaultCachePath()
 	cacheDir := filepath.Join(cachePath, tuf.URLToPath(opts.TufRootURL))
 	f := Defaultfetcher()
 	tufOpts := &tuf.Options{
@@ -105,6 +99,28 @@ func GetRoot(opts *TufOptions) ([]byte, error) {
 		return nil, fmt.Errorf("fetching TUF root data: %w", err)
 	}
 	return data, nil
+}
+
+// LatestRoot returns the newest root metadata of the repository that can
+// be verified, link by link, from the bootstrap root in opts. It refreshes
+// the repository first, so the result is current as of the call. It is
+// what a consumer embeds as the next bootstrap root.
+func LatestRoot(opts *TufOptions) ([]byte, error) {
+	if _, err := GetClient(opts); err != nil {
+		return nil, fmt.Errorf("creating TUF client: %w", err)
+	}
+	cacheDir := filepath.Join(defaultCachePath(), tuf.URLToPath(opts.TufRootURL))
+	return bootstrapRoot(cacheDir, opts.RootData, Defaultfetcher(), opts.TufRootURL), nil
+}
+
+// defaultCachePath is the directory holding the per-repository TUF caches.
+func defaultCachePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Fall back to using a TUF repository in the temp location
+		home = os.TempDir()
+	}
+	return filepath.Join(home, ".sigstore", "root")
 }
 
 // cacheHasMetadata reports whether the TUF cache at cachePath/<URL-derived

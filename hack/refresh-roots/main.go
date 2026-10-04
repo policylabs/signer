@@ -10,6 +10,12 @@
 // sigstore/roots/<id>.trusted_root.json and stamps that instance's
 // "trusted-root-snapshot" with the current date.
 //
+// It also advances the instance's embedded TUF bootstrap root,
+// sigstore/roots/<id>.json, to the newest root metadata that verifies from
+// the current embed. A bootstrap root is only good until it expires; past
+// that, a client seeded with it cannot use its local cache and must go to
+// the network on every run.
+//
 // It is idempotent: run twice on the same day against unchanged upstreams it
 // produces byte-identical output. Run it from the repository root:
 //
@@ -27,6 +33,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/theupdateframework/go-tuf/v2/metadata"
 
 	"github.com/policylabs/signer/internal/tuf"
 	"github.com/policylabs/signer/sigstore"
@@ -99,6 +106,10 @@ func run(args []string) error {
 		}
 		updated = next
 		fmt.Printf("  wrote %s (snapshot %s)\n", outPath, snapshot)
+
+		if err := refreshBootstrapRoot(rootsDir, inst); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", inst.ID, err))
+		}
 	}
 
 	if !bytes.Equal(updated, data) {
@@ -108,6 +119,37 @@ func run(args []string) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// refreshBootstrapRoot writes the newest verified root metadata of the
+// instance's TUF repository to sigstore/roots/<id>.json, the embed the
+// runtime seeds its TUF client with. The bytes are kept as served, since
+// that is what the signatures cover.
+func refreshBootstrapRoot(rootsDir string, inst *sigstore.InstanceConfig) error {
+	data, err := tuf.LatestRoot(&inst.TufOptions)
+	if err != nil {
+		return fmt.Errorf("fetching latest TUF root: %w", err)
+	}
+	latest, err := metadata.Root().FromBytes(data)
+	if err != nil {
+		return fmt.Errorf("latest TUF root does not parse: %w", err)
+	}
+	current, err := metadata.Root().FromBytes(inst.RootData)
+	if err != nil {
+		return fmt.Errorf("embedded TUF root does not parse: %w", err)
+	}
+	if latest.Signed.Version < current.Signed.Version {
+		return fmt.Errorf("latest verified TUF root (v%d) is older than the embed (v%d)",
+			latest.Signed.Version, current.Signed.Version)
+	}
+
+	outPath := filepath.Join(rootsDir, inst.ID+".json")
+	if err := os.WriteFile(outPath, data, 0o600); err != nil {
+		return fmt.Errorf("writing %s: %w", outPath, err)
+	}
+	fmt.Printf("  wrote %s (root v%d, expires %s)\n",
+		outPath, latest.Signed.Version, latest.Signed.Expires.UTC().Format(time.RFC3339))
+	return nil
 }
 
 // setSnapshot rewrites the "trusted-root-snapshot" value of the instance with
