@@ -24,7 +24,7 @@ const rootFreshnessEnv = "SIGNER_CHECK_ROOT_FRESHNESS"
 
 // ciTrustedRootMaxAge is a CI-only freshness floor for the embedded trusted
 // roots. It is deliberately tighter than the runtime DefaultTrustedRootMaxAge
-// (30 days) so a refresh is forced well before an embed could go stale enough
+// (90 days) so a refresh is forced well before an embed could go stale enough
 // to make the runtime fall back to a live TUF fetch during verification.
 const ciTrustedRootMaxAge = 21 * 24 * time.Hour
 
