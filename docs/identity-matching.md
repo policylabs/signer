@@ -126,6 +126,9 @@ against any variant. Other paths are variant-qualified:
 | `sigstore.issuer`       | `Sigstore.Issuer` (signer must be sigstore)                               |
 | `sigstore.identity`     | `Sigstore.Identity`                                                       |
 | `sigstore.source_repository_uri` | `Sigstore.SourceRepositoryUri`                                   |
+| `sigstore.build_config_uri` | `Sigstore.BuildConfigUri`                                             |
+| `sigstore.build_trigger` | `Sigstore.BuildTrigger`                                                  |
+| `sigstore.source_repository_ref` | `Sigstore.SourceRepositoryRef`                                   |
 | `key.id`                | `Key.Id`                                                                  |
 | `key.type`              | `Key.Type`                                                                |
 | `key.signing_fingerprint` | `Key.SigningFingerprint`                                                |
@@ -149,6 +152,9 @@ the matcher **fails closed** for that signer.
 | `IssuerMatch`   | `StringMatcher` applied to the signer's issuer.                           |
 | `IdentityMatch` | `StringMatcher` applied to the signer's identity.                         |
 | `SourceRepositoryUriMatch` | `StringMatcher` applied to the signer's source repository URI. |
+| `BuildConfigUriMatch` | `StringMatcher` applied to the workflow the certificate was issued for (for a reusable workflow, the calling workflow). |
+| `BuildTriggerMatch` | `StringMatcher` applied to the event that triggered the run, for example `release` or `push`. |
+| `SourceRepositoryRefMatch` | `StringMatcher` applied to the ref the run was for, for example `refs/tags/v1.2.3`. |
 
 ### Matching rules (new + legacy combined)
 
@@ -162,6 +168,14 @@ When **matchers are used** (with or without legacy fields), each set
 matcher must pass independently. Matcher-only policies can pin just
 one axis (e.g. issuer_match without any identity constraint) — a
 new capability over the legacy shape.
+
+`BuildTriggerMatch` and `SourceRepositoryRefMatch` are the exception: an
+event like `release` or a ref like `refs/tags/v1.2.3` exists in every
+repository, so on their own they would match a run of anyone's
+workflow. They only refine an identity and need an identity, source
+repository URI or build config URI constraint next to them. An issuer
+alone doesn't count, it names a whole platform like GitHub Actions. A
+policy without one is invalid and matches nothing.
 
 Legacy and matchers combine with AND semantics: all set constraints
 must pass.
