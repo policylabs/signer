@@ -150,12 +150,7 @@ func (v *Verifier) verifyKeylessDSSE(art *EnvelopeArtifact, certPEM []byte, opts
 			fmt.Sprintf("reading the certificate identity: %v", err)), nil
 	}
 	return verified([]*api.Identity{{
-		Sigstore: &api.IdentitySigstore{
-			Issuer:              summary.Issuer,
-			Identity:            summary.SubjectAlternativeName,
-			SourceRepositoryUri: summary.SourceRepositoryURI,
-			BuildConfigUri:      summary.BuildConfigURI,
-		},
+		Sigstore: api.IdentitySigstoreFromCertificate(summary.Issuer, summary.SubjectAlternativeName, &summary),
 	}}), nil
 }
 

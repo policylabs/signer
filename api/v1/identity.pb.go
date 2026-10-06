@@ -145,8 +145,16 @@ type IdentitySigstore struct {
 	// build_config_uri_match.
 	BuildConfigUri      string         `protobuf:"bytes,8,opt,name=build_config_uri,json=buildConfigUri,proto3" json:"build_config_uri,omitempty"` // OID 1.3.6.1.4.1.57264.1.18
 	BuildConfigUriMatch *StringMatcher `protobuf:"bytes,9,opt,name=build_config_uri_match,json=buildConfigUriMatch,proto3" json:"build_config_uri_match,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The event that triggered the run, for example release or push. Has
+	// no legacy form; pin via build_trigger_match.
+	BuildTrigger      string         `protobuf:"bytes,10,opt,name=build_trigger,json=buildTrigger,proto3" json:"build_trigger,omitempty"` // OID 1.3.6.1.4.1.57264.1.20
+	BuildTriggerMatch *StringMatcher `protobuf:"bytes,11,opt,name=build_trigger_match,json=buildTriggerMatch,proto3" json:"build_trigger_match,omitempty"`
+	// The git ref the run was for, for example refs/tags/v1.2.3. Has no
+	// legacy form; pin via source_repository_ref_match.
+	SourceRepositoryRef      string         `protobuf:"bytes,12,opt,name=source_repository_ref,json=sourceRepositoryRef,proto3" json:"source_repository_ref,omitempty"` // OID 1.3.6.1.4.1.57264.1.14
+	SourceRepositoryRefMatch *StringMatcher `protobuf:"bytes,13,opt,name=source_repository_ref_match,json=sourceRepositoryRefMatch,proto3" json:"source_repository_ref_match,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *IdentitySigstore) Reset() {
@@ -238,6 +246,34 @@ func (x *IdentitySigstore) GetBuildConfigUri() string {
 func (x *IdentitySigstore) GetBuildConfigUriMatch() *StringMatcher {
 	if x != nil {
 		return x.BuildConfigUriMatch
+	}
+	return nil
+}
+
+func (x *IdentitySigstore) GetBuildTrigger() string {
+	if x != nil {
+		return x.BuildTrigger
+	}
+	return ""
+}
+
+func (x *IdentitySigstore) GetBuildTriggerMatch() *StringMatcher {
+	if x != nil {
+		return x.BuildTriggerMatch
+	}
+	return nil
+}
+
+func (x *IdentitySigstore) GetSourceRepositoryRef() string {
+	if x != nil {
+		return x.SourceRepositoryRef
+	}
+	return ""
+}
+
+func (x *IdentitySigstore) GetSourceRepositoryRefMatch() *StringMatcher {
+	if x != nil {
+		return x.SourceRepositoryRefMatch
 	}
 	return nil
 }
@@ -490,7 +526,7 @@ const file_carabiner_signer_v1_identity_proto_rawDesc = "" +
 	"\t_sigstoreB\x06\n" +
 	"\x04_keyB\x06\n" +
 	"\x04_refB\t\n" +
-	"\a_spiffe\"\x94\x04\n" +
+	"\a_spiffe\"\xa4\x06\n" +
 	"\x10IdentitySigstore\x12\x17\n" +
 	"\x04mode\x18\x01 \x01(\tH\x00R\x04mode\x88\x01\x01\x12\x16\n" +
 	"\x06issuer\x18\x02 \x01(\tR\x06issuer\x12\x1a\n" +
@@ -500,7 +536,12 @@ const file_carabiner_signer_v1_identity_proto_rawDesc = "" +
 	"\x15source_repository_uri\x18\x06 \x01(\tR\x13sourceRepositoryUri\x12a\n" +
 	"\x1bsource_repository_uri_match\x18\a \x01(\v2\".carabiner.signer.v1.StringMatcherR\x18sourceRepositoryUriMatch\x12(\n" +
 	"\x10build_config_uri\x18\b \x01(\tR\x0ebuildConfigUri\x12W\n" +
-	"\x16build_config_uri_match\x18\t \x01(\v2\".carabiner.signer.v1.StringMatcherR\x13buildConfigUriMatchB\a\n" +
+	"\x16build_config_uri_match\x18\t \x01(\v2\".carabiner.signer.v1.StringMatcherR\x13buildConfigUriMatch\x12#\n" +
+	"\rbuild_trigger\x18\n" +
+	" \x01(\tR\fbuildTrigger\x12R\n" +
+	"\x13build_trigger_match\x18\v \x01(\v2\".carabiner.signer.v1.StringMatcherR\x11buildTriggerMatch\x122\n" +
+	"\x15source_repository_ref\x18\f \x01(\tR\x13sourceRepositoryRef\x12a\n" +
+	"\x1bsource_repository_ref_match\x18\r \x01(\v2\".carabiner.signer.v1.StringMatcherR\x18sourceRepositoryRefMatchB\a\n" +
 	"\x05_mode\"\xd8\x02\n" +
 	"\vIdentityKey\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -556,17 +597,19 @@ var file_carabiner_signer_v1_identity_proto_depIdxs = []int32{
 	6,  // 6: carabiner.signer.v1.IdentitySigstore.identity_match:type_name -> carabiner.signer.v1.StringMatcher
 	6,  // 7: carabiner.signer.v1.IdentitySigstore.source_repository_uri_match:type_name -> carabiner.signer.v1.StringMatcher
 	6,  // 8: carabiner.signer.v1.IdentitySigstore.build_config_uri_match:type_name -> carabiner.signer.v1.StringMatcher
-	6,  // 9: carabiner.signer.v1.IdentityKey.id_match:type_name -> carabiner.signer.v1.StringMatcher
-	6,  // 10: carabiner.signer.v1.IdentityKey.type_match:type_name -> carabiner.signer.v1.StringMatcher
-	6,  // 11: carabiner.signer.v1.IdentityKey.signing_fingerprint_match:type_name -> carabiner.signer.v1.StringMatcher
-	6,  // 12: carabiner.signer.v1.IdentitySpiffe.svid_match:type_name -> carabiner.signer.v1.StringMatcher
-	6,  // 13: carabiner.signer.v1.IdentitySpiffe.trust_domain_match:type_name -> carabiner.signer.v1.StringMatcher
-	6,  // 14: carabiner.signer.v1.IdentitySpiffe.path_match:type_name -> carabiner.signer.v1.StringMatcher
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	6,  // 9: carabiner.signer.v1.IdentitySigstore.build_trigger_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 10: carabiner.signer.v1.IdentitySigstore.source_repository_ref_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 11: carabiner.signer.v1.IdentityKey.id_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 12: carabiner.signer.v1.IdentityKey.type_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 13: carabiner.signer.v1.IdentityKey.signing_fingerprint_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 14: carabiner.signer.v1.IdentitySpiffe.svid_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 15: carabiner.signer.v1.IdentitySpiffe.trust_domain_match:type_name -> carabiner.signer.v1.StringMatcher
+	6,  // 16: carabiner.signer.v1.IdentitySpiffe.path_match:type_name -> carabiner.signer.v1.StringMatcher
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_carabiner_signer_v1_identity_proto_init() }

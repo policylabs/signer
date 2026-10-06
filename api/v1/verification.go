@@ -4,12 +4,14 @@
 package v1
 
 import (
+	"cmp"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/policylabs/attestation"
+	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"google.golang.org/protobuf/proto"
@@ -70,14 +72,31 @@ func SignatureVerificationFromResult(r *verify.VerificationResult) *SignatureVer
 		}
 		sv.Identities = append(sv.Identities, &Identity{Spiffe: id})
 	case san != "" || issuer != "":
-		ss := &IdentitySigstore{Issuer: issuer, Identity: san}
-		if r.Signature != nil && r.Signature.Certificate != nil {
-			ss.SourceRepositoryUri = r.Signature.Certificate.SourceRepositoryURI
-			ss.BuildConfigUri = r.Signature.Certificate.BuildConfigURI
+		var cert *certificate.Summary
+		if r.Signature != nil {
+			cert = r.Signature.Certificate
 		}
-		sv.Identities = append(sv.Identities, &Identity{Sigstore: ss})
+		sv.Identities = append(sv.Identities, &Identity{Sigstore: IdentitySigstoreFromCertificate(issuer, san, cert)})
 	}
 	return sv
+}
+
+// IdentitySigstoreFromCertificate returns the sigstore identity of a
+// verified signer: its issuer and subject alternative name, and the
+// certificate extensions policies can match, read from the certificate
+// summary when there is one. Certificates issued before Fulcio added the
+// Build Trigger and Source Repository Ref extensions carry the deprecated
+// GitHub Workflow Trigger and Ref ones instead, which are used then.
+func IdentitySigstoreFromCertificate(issuer, san string, cert *certificate.Summary) *IdentitySigstore {
+	ss := &IdentitySigstore{Issuer: issuer, Identity: san}
+	if cert == nil {
+		return ss
+	}
+	ss.SourceRepositoryUri = cert.SourceRepositoryURI
+	ss.BuildConfigUri = cert.BuildConfigURI
+	ss.BuildTrigger = cmp.Or(cert.BuildTrigger, cert.GithubWorkflowTrigger)
+	ss.SourceRepositoryRef = cmp.Or(cert.SourceRepositoryRef, cert.GithubWorkflowRef)
+	return ss
 }
 
 // anchoredRegex wraps a user-supplied pattern so it must match the full
@@ -192,15 +211,17 @@ func sigstoreCheck(id *IdentitySigstore) (func(*Identity) bool, bool) {
 	identityLegacy := id.GetIdentity()
 	issuerMatch := id.GetIssuerMatch()
 	identityMatch := id.GetIdentityMatch()
-	sourceRepoMatch := id.GetSourceRepositoryUriMatch()
-	buildConfigMatch := id.GetBuildConfigUriMatch()
+	extensions := extensionMatchers(id)
 
 	useLegacy := issuerLegacy != "" || identityLegacy != ""
-	useMatchers := issuerMatch != nil || identityMatch != nil || sourceRepoMatch != nil || buildConfigMatch != nil
+	useMatchers := issuerMatch != nil || identityMatch != nil || len(extensions) > 0
 	if !useLegacy && !useMatchers {
 		return nil, false
 	}
 	if useLegacy && (issuerLegacy == "" || identityLegacy == "") && !useMatchers {
+		return nil, false
+	}
+	if hasExtensionMatcher(id, true) && !anchoredSigstore(id) {
 		return nil, false
 	}
 
@@ -255,14 +276,93 @@ func sigstoreCheck(id *IdentitySigstore) (func(*Identity) bool, bool) {
 		if identityMatch != nil && !matchString(identityMatch, signerIdentity) {
 			return false
 		}
-		if sourceRepoMatch != nil && !matchString(sourceRepoMatch, ss.GetSourceRepositoryUri()) {
-			return false
-		}
-		if buildConfigMatch != nil && !matchString(buildConfigMatch, ss.GetBuildConfigUri()) {
-			return false
+		for _, ext := range extensions {
+			if !matchString(ext.matcher, ext.value(ss)) {
+				return false
+			}
 		}
 		return true
 	}, true
+}
+
+// sigstoreExtension is a Fulcio certificate extension that sigstore
+// identities record, and that policy identities pin with its matcher.
+type sigstoreExtension struct {
+	// name is the field name, the matcher is named name + "_match".
+	name       string
+	getMatcher func(*IdentitySigstore) *StringMatcher
+	value      func(*IdentitySigstore) string
+
+	// refinement marks extensions that don't name a signer on their own,
+	// like the trigger or the ref of a run, which every repository has.
+	// They need an anchoring constraint next to them.
+	refinement bool
+}
+
+// sigstoreExtensions are the certificate extensions sigstore identities
+// record. A new extension only needs an entry here: validation, matching
+// and the sigstore.<name> fields of outer matchers all read this table.
+var sigstoreExtensions = []sigstoreExtension{
+	{"source_repository_uri", (*IdentitySigstore).GetSourceRepositoryUriMatch, (*IdentitySigstore).GetSourceRepositoryUri, false},
+	{"build_config_uri", (*IdentitySigstore).GetBuildConfigUriMatch, (*IdentitySigstore).GetBuildConfigUri, false},
+	{"build_trigger", (*IdentitySigstore).GetBuildTriggerMatch, (*IdentitySigstore).GetBuildTrigger, true},
+	{"source_repository_ref", (*IdentitySigstore).GetSourceRepositoryRefMatch, (*IdentitySigstore).GetSourceRepositoryRef, true},
+}
+
+// extensionMatcher pairs the matcher of a Fulcio certificate extension
+// with the signer field it applies to.
+type extensionMatcher struct {
+	matcher *StringMatcher
+	value   func(*IdentitySigstore) string
+}
+
+// extensionMatchers returns the certificate extension matchers the
+// expected identity sets.
+func extensionMatchers(id *IdentitySigstore) []extensionMatcher {
+	var matchers []extensionMatcher
+	for _, ext := range sigstoreExtensions {
+		if m := ext.getMatcher(id); m != nil {
+			matchers = append(matchers, extensionMatcher{matcher: m, value: ext.value})
+		}
+	}
+	return matchers
+}
+
+// hasExtensionMatcher reports whether the expected identity sets any
+// certificate extension matcher, or only refinement ones.
+func hasExtensionMatcher(id *IdentitySigstore, refinementsOnly bool) bool {
+	for _, ext := range sigstoreExtensions {
+		if (!refinementsOnly || ext.refinement) && ext.getMatcher(id) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// anchoredSigstore reports whether the expected identity names a signer:
+// an identity, or a repository or workflow. An issuer alone doesn't, it
+// names a whole platform like GitHub Actions.
+func anchoredSigstore(id *IdentitySigstore) bool {
+	if id.GetIdentity() != "" || id.GetIdentityMatch() != nil {
+		return true
+	}
+	for _, ext := range sigstoreExtensions {
+		if !ext.refinement && ext.getMatcher(id) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// sigstoreExtensionValue returns the value of the certificate extension
+// with the name, for the sigstore.<name> fields of outer matchers.
+func sigstoreExtensionValue(ss *IdentitySigstore, name string) (string, bool) {
+	for _, ext := range sigstoreExtensions {
+		if ext.name == name {
+			return ext.value(ss), true
+		}
+	}
+	return "", false
 }
 
 // MatchesSpiffeIdentity returns true if one of the verified signatures was
@@ -379,13 +479,10 @@ func resolveIdentityField(signer *Identity, field string) (string, bool) {
 		switch name {
 		case "issuer":
 			return ss.GetIssuer(), true
-		case "identity":
+		case sigstoreFieldIdentity:
 			return ss.GetIdentity(), true
-		case "source_repository_uri":
-			return ss.GetSourceRepositoryUri(), true
-		case "build_config_uri":
-			return ss.GetBuildConfigUri(), true
 		}
+		return sigstoreExtensionValue(ss, name)
 	case identityTypeKey:
 		k := signer.GetKey()
 		if k == nil {

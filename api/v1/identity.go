@@ -185,8 +185,10 @@ func (i *Identity) Principal() string {
 // Spec covers the per-variant *_match conveniences and the dominant
 // principal-slot fields. It does NOT encode the outer Matchers slice,
 // IdentityKey.signing_fingerprint(_match), IdentitySpiffe.trust_roots, or
-// IdentitySigstore.source_repository_uri(_match) — callers that need full
-// fidelity should use the proto directly.
+// the certificate extension fields of IdentitySigstore (source_repository_uri,
+// build_config_uri, build_trigger and source_repository_ref, and their
+// _match forms). Callers that need full fidelity should use the proto
+// directly.
 func (i *Identity) Spec() string {
 	switch {
 	case i.GetSigstore() != nil:
@@ -572,9 +574,26 @@ func validateSigstore(s *IdentitySigstore) []error {
 	var errs []error
 
 	useLegacy := s.GetIssuer() != "" || s.GetIdentity() != ""
-	useMatchers := s.GetIssuerMatch() != nil || s.GetIdentityMatch() != nil || s.GetSourceRepositoryUriMatch() != nil || s.GetBuildConfigUriMatch() != nil
+	useMatchers := s.GetIssuerMatch() != nil || s.GetIdentityMatch() != nil || hasExtensionMatcher(s, false)
+	var refinements, anchors []string
+	for _, ext := range sigstoreExtensions {
+		switch {
+		case !ext.refinement:
+			anchors = append(anchors, ext.name+"_match")
+		case ext.getMatcher(s) != nil:
+			refinements = append(refinements, ext.name+"_match")
+		}
+	}
 	if !useLegacy && !useMatchers {
-		errs = append(errs, errors.New("sigstore identity requires issuer, identity, issuer_match, identity_match, source_repository_uri_match, or build_config_uri_match"))
+		errs = append(errs, fmt.Errorf("sigstore identity requires %s",
+			joinOr(append([]string{"issuer", sigstoreFieldIdentity, "issuer_match", "identity_match"}, anchors...))))
+	} else if len(refinements) > 0 && !anchoredSigstore(s) {
+		verbs := "refine an identity and need"
+		if len(refinements) == 1 {
+			verbs = "refines an identity and needs"
+		}
+		errs = append(errs, fmt.Errorf("sigstore %s only %s %s next to them",
+			strings.Join(refinements, " and "), verbs, joinOr(append([]string{sigstoreFieldIdentity, "identity_match"}, anchors...))))
 	}
 	if useLegacy && !useMatchers && (s.GetIssuer() == "" || s.GetIdentity() == "") {
 		errs = append(errs, errors.New("sigstore legacy form requires both issuer and identity when matchers are not used"))
@@ -603,26 +622,32 @@ func validateSigstore(s *IdentitySigstore) []error {
 			errs = append(errs, fmt.Errorf("identity_match: %w", err))
 		}
 	}
-	if m := s.GetSourceRepositoryUriMatch(); m != nil {
-		if err := validateStringMatcher(m); err != nil {
-			errs = append(errs, fmt.Errorf("source_repository_uri_match: %w", err))
-		}
-	}
-	if m := s.GetBuildConfigUriMatch(); m != nil {
-		if err := validateStringMatcher(m); err != nil {
-			errs = append(errs, fmt.Errorf("build_config_uri_match: %w", err))
-		}
-	}
-	// source_repository_uri and build_config_uri aren't supported by legacy
-	// mode so anyone setting them won't get what they expect. They must use
+	// The certificate extensions aren't supported by legacy mode, so anyone
+	// setting their raw fields won't get what they expect. They must use
 	// the matchers instead.
-	if s.GetSourceRepositoryUri() != "" {
-		errs = append(errs, errors.New("source_repository_uri cannot be set on a policy identity; use source_repository_uri_match"))
-	}
-	if s.GetBuildConfigUri() != "" {
-		errs = append(errs, errors.New("build_config_uri cannot be set on a policy identity; use build_config_uri_match"))
+	for _, ext := range sigstoreExtensions {
+		if m := ext.getMatcher(s); m != nil {
+			if err := validateStringMatcher(m); err != nil {
+				errs = append(errs, fmt.Errorf("%s_match: %w", ext.name, err))
+			}
+		}
+		if ext.value(s) != "" {
+			errs = append(errs, fmt.Errorf("%s cannot be set on a policy identity; use %s_match", ext.name, ext.name))
+		}
 	}
 	return errs
+}
+
+// sigstoreFieldIdentity names the identity field of sigstore identities,
+// in error messages and outer matchers.
+const sigstoreFieldIdentity = "identity"
+
+// joinOr lists the names as alternatives: "a, b, or c".
+func joinOr(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + ", or " + names[len(names)-1]
 }
 
 func validateKey(k *IdentityKey) []error {

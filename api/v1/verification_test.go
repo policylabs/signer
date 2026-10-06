@@ -219,6 +219,8 @@ func TestMatchesSigstoreIdentityConvenienceMatchers(t *testing.T) {
 			Identity:            "https://github.com/myorg/repo/.github/workflows/release.yml@refs/tags/v1.2.3",
 			SourceRepositoryUri: "https://github.com/myorg/repo",
 			BuildConfigUri:      "https://github.com/myorg/repo/.github/workflows/caller.yml@refs/tags/v1.2.3",
+			BuildTrigger:        "release",
+			SourceRepositoryRef: "refs/tags/v1.2.3",
 		}}},
 	}
 	for _, tt := range []struct {
@@ -368,6 +370,79 @@ func TestMatchesSigstoreIdentityConvenienceMatchers(t *testing.T) {
 			false,
 		},
 		{
+			"build-trigger-match-anchored-positive",
+			&IdentitySigstore{
+				SourceRepositoryUriMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://github.com/myorg/repo"}},
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+			},
+			true,
+		},
+		{
+			"build-trigger-match-anchored-wrong-value",
+			&IdentitySigstore{
+				SourceRepositoryUriMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://github.com/myorg/repo"}},
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "pull_request"}},
+			},
+			false,
+		},
+		{
+			"build-trigger-match-only-rejected",
+			&IdentitySigstore{
+				BuildTriggerMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+			},
+			false,
+		},
+		{
+			"source-ref-match-glob-anchored-positive",
+			&IdentitySigstore{
+				SourceRepositoryUriMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://github.com/myorg/repo"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Glob{Glob: "refs/tags/v*"}},
+			},
+			true,
+		},
+		{
+			"source-ref-match-anchored-wrong-value",
+			&IdentitySigstore{
+				SourceRepositoryUriMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://github.com/myorg/repo"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "refs/heads/main"}},
+			},
+			false,
+		},
+		{
+			"build-trigger-with-issuer-only-rejected",
+			&IdentitySigstore{
+				IssuerMatch:       &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://token.actions.githubusercontent.com"}},
+				BuildTriggerMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+			},
+			false,
+		},
+		{
+			"issuer-match-only-still-matches",
+			&IdentitySigstore{
+				IssuerMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://token.actions.githubusercontent.com"}},
+			},
+			true,
+		},
+		{
+			"refinements-only-rejected",
+			&IdentitySigstore{
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Glob{Glob: "refs/tags/v*"}},
+			},
+			false,
+		},
+		{
+			"build-trigger-and-source-ref-combined-with-identity-and",
+			&IdentitySigstore{
+				IdentityMatch: &StringMatcher{
+					Kind: &StringMatcher_Prefix{Prefix: "https://github.com/myorg/repo/"},
+				},
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "refs/heads/main"}},
+			},
+			false,
+		},
+		{
 			"no-constraint-at-all-rejected",
 			&IdentitySigstore{},
 			false,
@@ -488,6 +563,8 @@ func TestMatchesIdentityOuterMatchers(t *testing.T) {
 			Identity:            "https://github.com/myorg/repo/.github/workflows/release.yml@refs/tags/v1.2.3",
 			SourceRepositoryUri: "https://github.com/myorg/repo",
 			BuildConfigUri:      "https://github.com/myorg/repo/.github/workflows/caller.yml@refs/tags/v1.2.3",
+			BuildTrigger:        "release",
+			SourceRepositoryRef: "refs/tags/v1.2.3",
 		}}},
 	}
 	spiffeSigner := &SignatureVerification{
@@ -666,6 +743,35 @@ func TestMatchesIdentityOuterMatchers(t *testing.T) {
 				},
 				Matchers: []*Matcher{
 					stringMatch("sigstore.source_repository_uri", "https://github.com/other/repo"),
+				},
+			},
+			false,
+		},
+		{
+			"outer-build-trigger-and-source-ref-match",
+			sigstoreSigner,
+			&Identity{
+				Sigstore: &IdentitySigstore{
+					Issuer:   "https://token.actions.githubusercontent.com",
+					Identity: "https://github.com/myorg/repo/.github/workflows/release.yml@refs/tags/v1.2.3",
+				},
+				Matchers: []*Matcher{
+					stringMatch("sigstore.build_trigger", "release"),
+					stringPrefix("sigstore.source_repository_ref", "refs/tags/"),
+				},
+			},
+			true,
+		},
+		{
+			"outer-build-trigger-mismatch",
+			sigstoreSigner,
+			&Identity{
+				Sigstore: &IdentitySigstore{
+					Issuer:   "https://token.actions.githubusercontent.com",
+					Identity: "https://github.com/myorg/repo/.github/workflows/release.yml@refs/tags/v1.2.3",
+				},
+				Matchers: []*Matcher{
+					stringMatch("sigstore.build_trigger", "pull_request_target"),
 				},
 			},
 			false,
@@ -938,6 +1044,8 @@ func TestSignatureVerificationFromResult(t *testing.T) {
 					Extensions: certificate.Extensions{
 						SourceRepositoryURI: "https://github.com/myorg/repo",
 						BuildConfigURI:      "https://github.com/myorg/repo/.github/workflows/caller.yml@refs/tags/v1.2.3",
+						BuildTrigger:        "release",
+						SourceRepositoryRef: "refs/tags/v1.2.3",
 					},
 				},
 			},
@@ -948,6 +1056,8 @@ func TestSignatureVerificationFromResult(t *testing.T) {
 		require.NotNil(t, ss)
 		require.Equal(t, "https://github.com/myorg/repo", ss.GetSourceRepositoryUri())
 		require.Equal(t, "https://github.com/myorg/repo/.github/workflows/caller.yml@refs/tags/v1.2.3", ss.GetBuildConfigUri())
+		require.Equal(t, "release", ss.GetBuildTrigger())
+		require.Equal(t, "refs/tags/v1.2.3", ss.GetSourceRepositoryRef())
 	})
 
 	t.Run("identity-check-skipped-reads-certificate-summary", func(t *testing.T) {
@@ -1101,4 +1211,61 @@ func TestMatchesKeyIdentityDoesNotMutate(t *testing.T) {
 	require.Empty(t, identity.GetId())
 	require.Empty(t, identity.GetType())
 	require.Equal(t, keyData, identity.GetData())
+}
+
+func TestIdentitySigstoreFromCertificate(t *testing.T) {
+	t.Parallel()
+	const (
+		issuer = "https://token.actions.githubusercontent.com"
+		san    = "https://github.com/myorg/repo/.github/workflows/provenance.yml@refs/tags/v1.2.3"
+	)
+	for _, tt := range []struct {
+		name        string
+		cert        *certificate.Summary
+		wantTrigger string
+		wantRef     string
+	}{
+		{"no-certificate", nil, "", ""},
+		{
+			"current-extensions",
+			&certificate.Summary{Extensions: certificate.Extensions{
+				SourceRepositoryURI: "https://github.com/myorg/repo",
+				BuildConfigURI:      "https://github.com/myorg/repo/.github/workflows/release.yml@refs/tags/v1.2.3",
+				BuildTrigger:        "release",
+				SourceRepositoryRef: "refs/tags/v1.2.3",
+			}},
+			"release", "refs/tags/v1.2.3",
+		},
+		{
+			"deprecated-github-extensions",
+			&certificate.Summary{Extensions: certificate.Extensions{
+				GithubWorkflowTrigger: "release",
+				GithubWorkflowRef:     "refs/tags/v1.2.3",
+			}},
+			"release", "refs/tags/v1.2.3",
+		},
+		{
+			"current-extensions-win",
+			&certificate.Summary{Extensions: certificate.Extensions{
+				BuildTrigger:          "release",
+				SourceRepositoryRef:   "refs/tags/v1.2.3",
+				GithubWorkflowTrigger: "push",
+				GithubWorkflowRef:     "refs/heads/main",
+			}},
+			"release", "refs/tags/v1.2.3",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ss := IdentitySigstoreFromCertificate(issuer, san, tt.cert)
+			require.Equal(t, issuer, ss.GetIssuer())
+			require.Equal(t, san, ss.GetIdentity())
+			require.Equal(t, tt.wantTrigger, ss.GetBuildTrigger())
+			require.Equal(t, tt.wantRef, ss.GetSourceRepositoryRef())
+			if tt.cert != nil {
+				require.Equal(t, tt.cert.SourceRepositoryURI, ss.GetSourceRepositoryUri())
+				require.Equal(t, tt.cert.BuildConfigURI, ss.GetBuildConfigUri())
+			}
+		})
+	}
 }

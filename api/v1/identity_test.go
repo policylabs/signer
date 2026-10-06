@@ -186,6 +186,53 @@ func TestVerifyIdentity(t *testing.T) {
 				BuildConfigUri: "https://github.com/myorg/repo/.github/workflows/release.yml@refs/tags/v1.2.3",
 			},
 		}},
+		{"sigstore-build-trigger-match-only-invalid", true, &Identity{
+			Sigstore: &IdentitySigstore{
+				BuildTriggerMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+			},
+		}},
+		{"sigstore-build-trigger-match-anchored-valid", false, &Identity{
+			Sigstore: &IdentitySigstore{
+				SourceRepositoryUriMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://github.com/myorg/repo"}},
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+			},
+		}},
+		{"sigstore-build-trigger-data-on-expectation-invalid", true, &Identity{
+			Sigstore: &IdentitySigstore{
+				IdentityMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "user@example.com"}},
+				BuildTrigger:  "release",
+			},
+		}},
+		{"sigstore-source-ref-match-only-invalid", true, &Identity{
+			Sigstore: &IdentitySigstore{
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Glob{Glob: "refs/tags/v*"}},
+			},
+		}},
+		{"sigstore-refinements-only-invalid", true, &Identity{
+			Sigstore: &IdentitySigstore{
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Glob{Glob: "refs/tags/v*"}},
+			},
+		}},
+		{"sigstore-source-ref-match-anchored-valid", false, &Identity{
+			Sigstore: &IdentitySigstore{
+				IdentityMatch:            &StringMatcher{Kind: &StringMatcher_Prefix{Prefix: "https://github.com/myorg/repo/"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Glob{Glob: "refs/tags/v*"}},
+			},
+		}},
+		{"sigstore-refinements-with-issuer-only-invalid", true, &Identity{
+			Sigstore: &IdentitySigstore{
+				IssuerMatch:              &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://token.actions.githubusercontent.com"}},
+				BuildTriggerMatch:        &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}},
+				SourceRepositoryRefMatch: &StringMatcher{Kind: &StringMatcher_Glob{Glob: "refs/tags/v*"}},
+			},
+		}},
+		{"sigstore-source-ref-data-on-expectation-invalid", true, &Identity{
+			Sigstore: &IdentitySigstore{
+				IdentityMatch:       &StringMatcher{Kind: &StringMatcher_Exact{Exact: "user@example.com"}},
+				SourceRepositoryRef: "refs/tags/v1.2.3",
+			},
+		}},
 		{"sigstore-source-repo-from-context-valid", false, &Identity{
 			Sigstore: &IdentitySigstore{
 				SourceRepositoryUriMatch: &StringMatcher{FromContext: "source_repo"},
@@ -523,4 +570,42 @@ func TestIdentityKeyFromPublic(t *testing.T) {
 		require.Equal(t, "04B44C056663906446B77A6D89F11DC191AA7042", ik.GetSigningFingerprint())
 		require.Equal(t, string(key.Ed25519), ik.GetType())
 	})
+}
+
+func TestValidateSigstoreRefinementErrors(t *testing.T) {
+	t.Parallel()
+	repo := &StringMatcher{Kind: &StringMatcher_Exact{Exact: "https://github.com/myorg/repo"}}
+	badRegex := &StringMatcher{Kind: &StringMatcher_Regex{Regex: "[unclosed"}}
+	for _, tt := range []struct {
+		name    string
+		sut     *IdentitySigstore
+		wantErr string
+	}{
+		{
+			"build-trigger-bad-regex",
+			&IdentitySigstore{SourceRepositoryUriMatch: repo, BuildTriggerMatch: badRegex},
+			"build_trigger_match: ",
+		},
+		{
+			"source-ref-bad-regex",
+			&IdentitySigstore{SourceRepositoryUriMatch: repo, SourceRepositoryRefMatch: badRegex},
+			"source_repository_ref_match: ",
+		},
+		{
+			"unanchored-names-only-the-set-refinement",
+			&IdentitySigstore{BuildTriggerMatch: &StringMatcher{Kind: &StringMatcher_Exact{Exact: "release"}}},
+			"sigstore build_trigger_match only refines an identity and needs identity, identity_match, source_repository_uri_match, or build_config_uri_match next to them",
+		},
+		{
+			"empty-names-no-refinement-as-sufficient",
+			&IdentitySigstore{},
+			"sigstore identity requires issuer, identity, issuer_match, identity_match, source_repository_uri_match, or build_config_uri_match",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := (&Identity{Sigstore: tt.sut}).Validate()
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }
