@@ -170,11 +170,15 @@ func TestVerifyStatementErrors(t *testing.T) {
 	t.Parallel()
 
 	env := loadTestEnvelope(t)
-	// A bundle that signs a message rather than a statement is not
+	// A bundle that signs a message without saying what was signed is not
 	// something VerifyStatement can conclude about.
 	msg := &BundleArtifact{Bundle: &sbundle.Bundle{Bundle: &protobundle.Bundle{
-		Content: &protobundle.Bundle_MessageSignature{MessageSignature: &protocommon.MessageSignature{}},
+		Content: &protobundle.Bundle_MessageSignature{MessageSignature: &protocommon.MessageSignature{
+			Signature: []byte("sig"),
+		}},
 	}}}
+	// A bundle with no content at all.
+	empty := &BundleArtifact{Bundle: &sbundle.Bundle{Bundle: &protobundle.Bundle{}}}
 
 	for _, tc := range []struct {
 		name string
@@ -184,7 +188,8 @@ func TestVerifyStatementErrors(t *testing.T) {
 		{name: "nil artifact", art: nil},
 		{name: "envelope artifact without envelope", art: &EnvelopeArtifact{}},
 		{name: "bundle artifact without bundle", art: &BundleArtifact{}},
-		{name: "bundle signing a message, not a statement", art: msg},
+		{name: "bundle signing a message without a digest", art: msg},
+		{name: "bundle with no content", art: empty},
 		// An option that fails to apply is an error, not a conclusion.
 		{name: "bad option", art: env, opts: []options.VerificationOptFunc{options.WithExpectedSpiffeIDRegex("td", "(")}},
 	} {
