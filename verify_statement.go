@@ -125,19 +125,31 @@ func (v *Verifier) verifyEnvelopeStatement(art *EnvelopeArtifact, fnOpts ...opti
 	return verified(ids), nil
 }
 
-// verifyBundleStatement verifies a sigstore bundle wrapping a DSSE
-// envelope against the configured sigstore or SPIFFE trust material,
-// translating the bundle verifier's typed errors into conclusions.
+// verifyBundleStatement verifies a sigstore bundle against the configured
+// sigstore or SPIFFE trust material, translating the bundle verifier's
+// typed errors into conclusions. The bundle wraps a DSSE envelope, or a
+// message signature over a digest the bundle carries: that is how a cosign
+// image signature travels once a collector has turned it into an
+// attestation, and the signature is verified against that digest.
 func (v *Verifier) verifyBundleStatement(bndl *sbundle.Bundle, fnOpts ...options.VerificationOptFunc) (*api.Verification, error) {
 	if bndl == nil || bndl.Bundle == nil {
 		return nil, errors.New("bundle artifact has no bundle")
 	}
-	env := bndl.GetDsseEnvelope()
-	if env == nil {
-		return nil, errors.New("bundle does not wrap a DSSE envelope, it is not a signed statement")
-	}
-	if len(env.GetSignatures()) == 0 {
-		return conclude(api.VerificationStatus_UNSIGNED, "bundle DSSE envelope has no signatures"), nil
+	switch {
+	case bndl.GetDsseEnvelope() != nil:
+		if len(bndl.GetDsseEnvelope().GetSignatures()) == 0 {
+			return conclude(api.VerificationStatus_UNSIGNED, "bundle DSSE envelope has no signatures"), nil
+		}
+	case bndl.GetMessageSignature() != nil:
+		msg := bndl.GetMessageSignature()
+		if len(msg.GetSignature()) == 0 {
+			return conclude(api.VerificationStatus_UNSIGNED, "bundle message signature has no signature"), nil
+		}
+		if len(msg.GetMessageDigest().GetDigest()) == 0 {
+			return nil, errors.New("bundle message signature carries no digest to verify against")
+		}
+	default:
+		return nil, errors.New("bundle wraps neither a DSSE envelope nor a message signature")
 	}
 
 	res, err := v.VerifyParsedBundle(bndl, fnOpts...)
