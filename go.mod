@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
-	github.com/carabiner-dev/command v0.3.3
+	github.com/carabiner-dev/command v0.3.4
 	github.com/go-openapi/strfmt v0.27.3
 	github.com/go-openapi/swag/conv v0.29.2
 	github.com/in-toto/attestation v1.2.0
