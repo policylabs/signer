@@ -18,7 +18,7 @@ import (
 )
 
 // Ensure we are implementing the framworks verification
-var _ attestation.Verification = (*Verification)(nil) //nolint:errcheck
+var _ attestation.Verification = (*Verification)(nil)
 
 // SignatureVerificationFromResult translates sigstore-go's
 // *verify.VerificationResult into the api/v1 SignatureVerification used for
