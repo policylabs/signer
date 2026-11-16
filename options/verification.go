@@ -6,6 +6,7 @@ package options
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/http"
 	"regexp"
 	"slices"
 
@@ -41,6 +42,14 @@ type RekorVerification struct {
 
 	// URL is the Rekor instance to query. Empty means DefaultRekorURL.
 	URL string
+
+	// HTTPClient, when set, carries the requests to the log in place of
+	// the default client, which dials its own connections and retries
+	// failed requests. Timeouts and retries are then the caller's to
+	// configure. Inject one where connections cannot be dialed, such as
+	// js/wasm in a browser, where a client using http.DefaultTransport
+	// goes through the Fetch API.
+	HTTPClient *http.Client
 }
 
 // GetURL returns the configured Rekor URL or the default.
@@ -65,6 +74,16 @@ func WithRekorVerification(enabled bool) VerificationOptFunc {
 func WithRekorURL(url string) VerificationOptFunc {
 	return func(v *Verification) error {
 		v.Rekor.URL = url
+		return nil
+	}
+}
+
+// WithRekorHTTPClient sets the HTTP client used to query the
+// transparency log when Rekor verification is enabled. A nil client
+// restores the default one. See RekorVerification.HTTPClient.
+func WithRekorHTTPClient(client *http.Client) VerificationOptFunc {
+	return func(v *Verification) error {
+		v.Rekor.HTTPClient = client
 		return nil
 	}
 }

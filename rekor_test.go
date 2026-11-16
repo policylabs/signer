@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,6 +111,52 @@ func TestVerifyStatementKeylessRekor(t *testing.T) {
 	require.Len(t, ids, 1)
 	assert.Equal(t, goBuilderSAN, ids[0].GetSigstore().GetIdentity())
 	assert.Equal(t, githubIssuer, ids[0].GetSigstore().GetIssuer())
+}
+
+// countingTransport counts the requests it forwards to
+// http.DefaultTransport.
+type countingTransport struct {
+	requests atomic.Int32
+}
+
+func (c *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.requests.Add(1)
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// An injected HTTP client carries the log query: the envelope verifies
+// just the same and the request went through the caller's transport.
+func TestVerifyStatementKeylessRekorHTTPClient(t *testing.T) {
+	t.Parallel()
+	ts := rekorTestServer(t, frozenRekorResponse(t))
+	data, err := os.ReadFile(keylessFixture)
+	require.NoError(t, err)
+	transport := &countingTransport{}
+	res, err := NewVerifier().VerifyStatementBytes(data,
+		options.WithRekorVerification(true), options.WithRekorURL(ts.URL),
+		options.WithRekorHTTPClient(&http.Client{Transport: transport}))
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, api.VerificationStatus_VERIFIED, res.GetSignature().GetStatus(), res.GetSignature().GetError())
+	assert.True(t, res.GetVerified())
+	assert.Equal(t, int32(1), transport.requests.Load())
+	ids := res.GetSignature().GetIdentities()
+	require.Len(t, ids, 1)
+	assert.Equal(t, goBuilderSAN, ids[0].GetSigstore().GetIdentity())
+}
+
+// An injected client that cannot reach the log leaves the envelope
+// unverifiable, as the default one does.
+func TestVerifyStatementKeylessRekorHTTPClientUnreachable(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(keylessFixture)
+	require.NoError(t, err)
+	res, err := NewVerifier().VerifyStatementBytes(data,
+		options.WithRekorVerification(true), options.WithRekorURL("http://127.0.0.1:1"),
+		options.WithRekorHTTPClient(&http.Client{}))
+	require.NoError(t, err)
+	assert.Equal(t, api.VerificationStatus_UNVERIFIABLE, res.GetSignature().GetStatus())
+	assert.Contains(t, res.GetSignature().GetError(), "querying the transparency log")
 }
 
 // A log with no matching entry refutes the envelope: nothing vouches

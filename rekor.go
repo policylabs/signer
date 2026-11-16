@@ -12,17 +12,23 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"time"
 
+	"github.com/go-openapi/runtime"
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/conv"
 	rekorclient "github.com/sigstore/rekor/pkg/client"
+	rekorgen "github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/client/entries"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/rekor/pkg/types"
 	rekordsse "github.com/sigstore/rekor/pkg/types/dsse"
 	dsse_v001 "github.com/sigstore/rekor/pkg/types/dsse/v0.0.1"
+	rekorutil "github.com/sigstore/rekor/pkg/util"
 	rverify "github.com/sigstore/rekor/pkg/verify"
 	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -95,7 +101,7 @@ func (v *Verifier) verifyKeylessDSSE(art *EnvelopeArtifact, certPEM []byte, opts
 			fmt.Sprintf("no sigstore trust material available: %v", err)), nil
 	}
 
-	entry, err := searchRekorEntry(ctx, opts.Rekor.GetURL(), raw, certPEM)
+	entry, err := searchRekorEntry(ctx, opts.Rekor.GetURL(), opts.Rekor.HTTPClient, raw, certPEM)
 	if err != nil {
 		return conclude(api.VerificationStatus_UNVERIFIABLE,
 			fmt.Sprintf("querying the transparency log at %s: %v", opts.Rekor.GetURL(), err)), nil
@@ -158,8 +164,9 @@ func (v *Verifier) verifyKeylessDSSE(art *EnvelopeArtifact, certPEM []byte, opts
 // proposing the two entry kinds keyless DSSE envelopes were uploaded
 // as: intoto v0.0.1 and dsse v0.0.1, both built from the envelope's original
 // bytes and its certificate. Returns nil when the log has no entry.
-func searchRekorEntry(ctx context.Context, url string, envelope, certPEM []byte) (*models.LogEntryAnon, error) {
-	client, err := rekorclient.GetRekorClient(url)
+// A nil httpClient queries the log with rekor's default client.
+func searchRekorEntry(ctx context.Context, logURL string, httpClient *http.Client, envelope, certPEM []byte) (*models.LogEntryAnon, error) {
+	client, err := newRekorClient(logURL, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("building transparency log client: %w", err)
 	}
@@ -203,6 +210,32 @@ func searchRekorEntry(ctx context.Context, url string, envelope, certPEM []byte)
 		}
 	}
 	return nil, nil
+}
+
+// newRekorClient returns a client for the log at logURL. Without an
+// HTTP client it is rekor's own, which retries failed requests over a
+// transport that dials its connections. An injected client is used as
+// is: rekor's constructor takes none, so the API client is assembled
+// here the way it does, leaving the transport to the caller.
+func newRekorClient(logURL string, httpClient *http.Client) (*rekorgen.Rekor, error) {
+	if httpClient == nil {
+		return rekorclient.GetRekorClient(logURL)
+	}
+	parsed, err := url.Parse(logURL)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Path == "" {
+		parsed.Path = rekorgen.DefaultBasePath
+	}
+	rt := httptransport.NewWithClient(parsed.Host, parsed.Path, []string{parsed.Scheme}, httpClient)
+	rt.Consumers["application/json"] = runtime.JSONConsumer()
+	rt.Consumers["application/x-pem-file"] = runtime.TextConsumer()
+	rt.Producers["application/json"] = runtime.JSONProducer()
+
+	registry := strfmt.Default
+	registry.Add("signedCheckpoint", &rekorutil.SignedNote{}, rekorutil.SignedCheckpointValidator)
+	return rekorgen.New(rt, registry), nil
 }
 
 // sigstoreTrustedRoots resolves the trusted roots of every configured

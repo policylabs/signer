@@ -53,6 +53,21 @@ res, err := v.VerifyStatementBytes(envelopeBytes,
 )
 ```
 
+The log is queried with a client that dials its own connections and
+retries failed requests. To send the query through an HTTP client of
+your own (a proxy, custom timeouts, or a platform where connections
+cannot be dialed, such as js/wasm in a browser, where a client on
+`http.DefaultTransport` goes through the Fetch API) pass it with
+`options.WithRekorHTTPClient`. Timeouts and retries are then that
+client's to handle:
+
+```go
+res, err := v.VerifyStatementBytes(envelopeBytes,
+    options.WithRekorVerification(true),
+    options.WithRekorHTTPClient(&http.Client{Timeout: 30 * time.Second}),
+)
+```
+
 Public keys always win: when keys are configured
 (`options.WithPublicKeys`), the envelope is verified against them and
 the transparency log is never consulted.
