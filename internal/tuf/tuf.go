@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/tuf"
+	"github.com/sirupsen/logrus"
 	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 	"sigs.k8s.io/release-utils/version"
 )
@@ -23,6 +24,8 @@ import (
 // short window where the rename or initial fetch fails. The
 // failure mode is recoverable on retry, so we bound a few attempts
 // here rather than blow up the verifier on a sub-second I/O blip.
+// A cache directory that cannot be written at all is not such a
+// failure and is not retried (see cacheWritable).
 const (
 	tufInitMaxAttempts  = 3
 	tufInitInitialDelay = 250 * time.Millisecond
@@ -67,7 +70,9 @@ func GetClient(opts *TufOptions) (*tuf.Client, error) {
 		lastErr error
 		delay   = tufInitInitialDelay
 	)
+	attempts := 0
 	for attempt := 1; attempt <= tufInitMaxAttempts; attempt++ {
+		attempts = attempt
 		client, lastErr = tuf.New(tufOpts)
 		if lastErr == nil {
 			// The client may have just rotated the cached root.json past
@@ -78,12 +83,45 @@ func GetClient(opts *TufOptions) (*tuf.Client, error) {
 			bootstrapRoot(cacheDir, opts.RootData, f, opts.TufRootURL)
 			return client, nil
 		}
+		// The retries are for failures that pass. A cache directory that
+		// cannot be written (a read-only filesystem, a home that does not
+		// exist) fails the same way every time, so waiting buys nothing.
+		if !cacheWritable(cacheDir) {
+			return nil, fmt.Errorf(
+				"creating TUF client: the cache directory %s cannot be written: %w", cacheDir, lastErr,
+			)
+		}
 		if attempt < tufInitMaxAttempts {
 			time.Sleep(delay)
 			delay *= 2
 		}
 	}
-	return nil, fmt.Errorf("creating TUF client (after %d attempts): %w", tufInitMaxAttempts, lastErr)
+	return nil, fmt.Errorf("creating TUF client (after %d attempts): %w", attempts, lastErr)
+}
+
+// cacheWritable reports whether the TUF client can keep metadata in dir,
+// by creating the directory and a file in it. It is only asked after a
+// client failed to initialize, to tell a failure that will repeat from one
+// worth retrying: the transient failures the retries exist for (a metadata
+// file briefly locked while it is renamed) leave the directory writable.
+func cacheWritable(dir string) bool {
+	// dir is the client's own cache directory: the user's home joined with
+	// the repository URL as sigstore-go's URLToPath flattens it.
+	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // G703: see above
+		return false
+	}
+	probe, err := os.CreateTemp(dir, ".writable-*")
+	if err != nil {
+		return false
+	}
+	name := probe.Name()
+	if err := probe.Close(); err != nil {
+		logrus.Debugf("tuf: closing cache probe %s: %v", name, err)
+	}
+	if err := os.Remove(name); err != nil { //nolint:gosec // G703: the file created above
+		logrus.Debugf("tuf: removing cache probe %s: %v", name, err)
+	}
+	return true
 }
 
 // GetRoot fetches the trusted root from the configured URL or from
