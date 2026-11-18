@@ -10,8 +10,6 @@ import (
 
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sirupsen/logrus"
-
-	"github.com/policylabs/signer/internal/tuf"
 )
 
 // DefaultTrustedRootMaxAge is the staleness window for an embedded trusted
@@ -51,9 +49,11 @@ func WithRoots(roots *SigstoreRoots) TrustedRootOptFn {
 	return func(o *trustedRootOptions) { o.roots = roots }
 }
 
-// WithForceTUF skips the embedded trusted root entirely and always fetches
-// from TUF. Because the embed is bypassed, it is not available as a resilient
-// fallback if the TUF fetch fails.
+// WithForceTUF skips the embedded trusted root entirely and always takes the
+// trusted root from TUF, fetching it unless the process already did within
+// the last hour. Because the embed is bypassed, it is not available as a
+// resilient fallback if the TUF fetch fails, and a failure is returned to
+// every call of the following five minutes without another attempt.
 func WithForceTUF() TrustedRootOptFn {
 	return func(o *trustedRootOptions) { o.forceTUF = true }
 }
@@ -117,8 +117,12 @@ func TrustedRoot(opts ...TrustedRootOptFn) (*root.TrustedRoot, error) {
 //     (snapshot is within MaxAge and its Fulcio anchors are not expired) and
 //     TUF is not forced, the the embeds are used. Here we make no network calls.
 //  3. Otherwise a TUF fetch of the live trusted root as defined in the roots.
+//     The fetched root serves the whole process for an hour before it is
+//     fetched again.
 //  4. If the TUF fetch fails but a stale embed exists, the embed is used and
-//     a warning is logged so verification works.
+//     a warning is logged so verification works. The failure is remembered
+//     for five minutes, during which the embed is used without another
+//     attempt.
 func (i *Instance) TrustedRoot(opts ...TrustedRootOptFn) (*root.TrustedRoot, error) {
 	o := defaultTrustedRootOptions()
 	for _, fn := range opts {
@@ -149,22 +153,23 @@ func (i *Instance) resolveTrustedRoot(o *trustedRootOptions) (*root.TrustedRoot,
 		}
 	}
 
-	// Fetch the live trusted root via TUF (when forced)
-	data, tufErr := tuf.GetRoot(&i.TufOptions)
+	// Fetch the live trusted root via TUF, or reuse what the process fetched
+	// recently: see tufTrustedRootCache.
+	tr, fetched, tufErr := tufTrustedRoots.get(&i.TufOptions)
 	if tufErr == nil {
-		tr, perr := root.NewTrustedRootFromJSON(data)
-		if perr == nil {
-			return tr, nil
-		}
-		tufErr = fmt.Errorf("parsing trusted root fetched via TUF: %w", perr)
+		return tr, nil
 	}
 
-	// If TUF fails then fall back to the stale embed if we have one.
+	// If TUF fails then fall back to the stale embed if we have one. The
+	// failure is remembered for a while, so it is only reported when it is
+	// new.
 	if embedded != nil {
-		logrus.Warnf(
-			"fetching trusted root for %q via TUF failed (%v); using embedded copy captured %s",
-			i.ID, tufErr, i.trustedRootSnapshotLabel(),
-		)
+		if fetched {
+			logrus.Warnf(
+				"fetching trusted root for %q via TUF failed (%v); using embedded copy captured %s",
+				i.ID, tufErr, i.trustedRootSnapshotLabel(),
+			)
+		}
 		return embedded, nil
 	}
 
