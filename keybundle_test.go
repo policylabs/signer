@@ -14,6 +14,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -99,6 +100,47 @@ func TestKeyBackendBundle(t *testing.T) {
 			require.True(t, res.Verified)
 		})
 	}
+}
+
+// opaqueKey is a signing key that does not hand out its private key
+// material, the way a key held by an agent or a hardware token behaves.
+// It signs on its own and only reports its public key.
+type opaqueKey struct {
+	inner *key.Private
+}
+
+func (o *opaqueKey) PrivateKey() (*key.Private, error) {
+	return nil, errors.New("private key material is not available")
+}
+
+func (o *opaqueKey) PublicKey() (*key.Public, error) {
+	return o.inner.PublicKey()
+}
+
+func (o *opaqueKey) SignMessage(message []byte) ([]byte, error) {
+	return key.NewSigner().SignMessage(o.inner, message)
+}
+
+// A key that cannot hand out its private material still signs into a
+// bundle: the bundle is built from the public key alone.
+func TestKeyBackendBundleOpaqueKey(t *testing.T) {
+	t.Parallel()
+	k := generateKey(t, elliptic.P256())
+	pub, err := k.PublicKey()
+	require.NoError(t, err)
+
+	art, err := keySigner().SignStatement(
+		[]byte(keyBundleStatement), options.WithKey(&opaqueKey{inner: k}), options.WithBundle(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, ArtifactKindBundle, art.Kind())
+
+	b := roundTrip(t, art)
+	require.Equal(t, expectedHint(t, pub.Key), b.GetVerificationMaterial().GetPublicKey().GetHint())
+
+	res, err := NewVerifier().VerifyParsedDSSE(b.GetDsseEnvelope(), []key.PublicKeyProvider{pub})
+	require.NoError(t, err)
+	require.True(t, res.Verified)
 }
 
 // Without the option the key backend keeps answering with an envelope,

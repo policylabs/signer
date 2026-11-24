@@ -4,7 +4,6 @@
 package key
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -13,8 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
 func NewSigner() *Signer {
@@ -25,16 +22,12 @@ type Signer struct{}
 
 // SignMessage signs a supplied message
 func (s *Signer) SignMessage(keyProvider PrivateKeyProvider, message []byte) ([]byte, error) {
-	// GPG entities produce binary OpenPGP detached signature packets so
-	// verifiers can recover which primary/subkey issued the signature.
-	// This dispatches before extracting the raw key material so we preserve
-	// the full entity context (subkey selection, issuer metadata).
-	if gpgPriv, ok := keyProvider.(*GPGPrivate); ok {
-		var buf bytes.Buffer
-		if err := openpgp.DetachSign(&buf, gpgPriv.Entity(), bytes.NewReader(message), nil); err != nil {
-			return nil, fmt.Errorf("signing with GPG entity: %w", err)
-		}
-		return buf.Bytes(), nil
+	// Providers with a signature format of their own (OpenPGP entities,
+	// for example) sign the message themselves. This dispatches before
+	// extracting the raw key material so the provider keeps its full
+	// context.
+	if ms, ok := keyProvider.(MessageSigner); ok {
+		return ms.SignMessage(message)
 	}
 
 	key, err := keyProvider.PrivateKey()

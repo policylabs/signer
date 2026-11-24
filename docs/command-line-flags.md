@@ -48,11 +48,15 @@ Used standalone (rare) or via `SignerSet` when `--signing-backend=key`.
 
 | Flag | Short | Repeatable | Description |
 | --- | --- | --- | --- |
-| `--signing-key`                | `-K` | yes | path to a private signing key file (PEM PKCS#8/PKCS#1/SEC1 or OpenPGP) |
+| `--signing-key`                | `-K` | yes | path to a private signing key file (PEM PKCS#8/PKCS#1/SEC1, OpenPGP or OpenSSH) |
 | `--signing-key-passphrase-env` |      | no  | envvar name to read the signing-key passphrase from (default: `SIGNING_KEY_PASSPHRASE`) |
+| `--signing-key-ssh-namespace`  |      | no  | namespace of the signatures made with SSH signing keys (default: `file`) |
 
 `BuildSigner()` parses each path and produces an `*options.Signer`
 with `Backend = BackendKey` and `Keys` populated.
+
+Private keys in the OpenSSH format sign in the SSH signature format; see
+[ssh-keys.md](ssh-keys.md).
 
 ### `KeysVerify` — `options.DefaultKeysVerify()`
 
