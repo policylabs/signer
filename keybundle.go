@@ -41,16 +41,9 @@ func bundleFromEnvelope(env *sdsse.Envelope, material *protobundle.VerificationM
 // signed with k: the certificate chain when one is given, otherwise a
 // hint that identifies the public key.
 func keyVerificationMaterial(k key.PrivateKeyProvider, chain []*x509.Certificate) (*protobundle.VerificationMaterial, error) {
-	priv, err := k.PrivateKey()
+	pub, err := signingPublicKey(k)
 	if err != nil {
-		return nil, fmt.Errorf("reading signing key: %w", err)
-	}
-	if priv == nil {
-		return nil, errors.New("signing key provider returned no key")
-	}
-	pub, err := priv.PublicKey()
-	if err != nil {
-		return nil, fmt.Errorf("deriving public key: %w", err)
+		return nil, err
 	}
 
 	if len(chain) == 0 {
@@ -74,6 +67,39 @@ func keyVerificationMaterial(k key.PrivateKeyProvider, chain []*x509.Certificate
 			X509CertificateChain: &protocommon.X509CertificateChain{Certificates: certs},
 		},
 	}, nil
+}
+
+// signingPublicKey returns the public key of a signing key provider.
+//
+// Providers that can report their public key are asked for it directly.
+// This keeps providers that cannot hand out their private key material
+// (keys held by an agent or a hardware token) usable, as the bundle only
+// ever needs the public half. Other providers have the public key derived
+// from the private one.
+func signingPublicKey(k key.PrivateKeyProvider) (*key.Public, error) {
+	if pp, ok := k.(key.PublicKeyProvider); ok {
+		pub, err := pp.PublicKey()
+		if err != nil {
+			return nil, fmt.Errorf("reading public key of the signing key: %w", err)
+		}
+		if pub == nil {
+			return nil, errors.New("signing key provider returned no public key")
+		}
+		return pub, nil
+	}
+
+	priv, err := k.PrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("reading signing key: %w", err)
+	}
+	if priv == nil {
+		return nil, errors.New("signing key provider returned no key")
+	}
+	pub, err := priv.PublicKey()
+	if err != nil {
+		return nil, fmt.Errorf("deriving public key: %w", err)
+	}
+	return pub, nil
 }
 
 // publicKeyHint identifies a public key the way sigstore's
