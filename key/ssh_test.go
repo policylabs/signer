@@ -362,6 +362,20 @@ func TestParser_SSHNamespace(t *testing.T) {
 	require.IsType(t, &Private{}, prov)
 }
 
+// An SSH key reads the namespace of a signature.
+func TestSSH_SignatureNamespace(t *testing.T) {
+	t.Parallel()
+	pub, err := ParseSSHPublicKey(readTestdata(t, "ssh-ed25519.pub"))
+	require.NoError(t, err)
+
+	namespace, err := pub.SignatureNamespace(readTestdata(t, "ssh-message.sig"))
+	require.NoError(t, err)
+	require.Equal(t, "file", namespace)
+
+	_, err = pub.SignatureNamespace([]byte("garbage"))
+	require.Error(t, err)
+}
+
 // A signature made by ssh-keygen verifies through the parser and the key
 // verifier.
 func TestSSH_FixtureVerify(t *testing.T) {

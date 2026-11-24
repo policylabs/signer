@@ -59,14 +59,15 @@ func TestRunVerificationSSHFixtures(t *testing.T) {
 	for _, tc := range []struct {
 		envelope, key, fingerprint string
 		scheme                     key.Scheme
+		namespace                  string
 	}{
 		{
 			"ssh-ed25519.dsse.json", "ssh-ed25519.pub",
-			"SHA256:LxeZc9rei//QDUFrAk6FxUG5vMTxXQ2p02uMxIjJzPY", key.Ed25519,
+			"SHA256:LxeZc9rei//QDUFrAk6FxUG5vMTxXQ2p02uMxIjJzPY", key.Ed25519, "file",
 		},
 		{
 			"gittuf-approval.dsse.json", "gittuf-app.pub",
-			"SHA256:KTrCAHHGUSCkNjanR0t4ojOiHQ4qZIQM6mkwX64b2KY", key.RsaPkcs1v15,
+			"SHA256:KTrCAHHGUSCkNjanR0t4ojOiHQ4qZIQM6mkwX64b2KY", key.RsaPkcs1v15, "git",
 		},
 	} {
 		t.Run(tc.envelope, func(t *testing.T) {
@@ -89,6 +90,9 @@ func TestRunVerificationSSHFixtures(t *testing.T) {
 			require.Equal(t, tc.fingerprint, res.Keys[0].ID())
 			require.Equal(t, tc.scheme, res.Keys[0].Scheme)
 			require.Empty(t, res.Keys[0].SigningKeyFingerprint)
+
+			// The namespace the signature was made under is reported.
+			require.Equal(t, tc.namespace, res.Keys[0].SignatureNamespace)
 
 			// A changed payload does not verify.
 			env.Payload = append(env.Payload, ' ')
@@ -151,6 +155,51 @@ func TestSignVerifySSH(t *testing.T) {
 	res, err = v.RunVerification(&options.Verifier{}, key.NewVerifier(), env, []key.PublicKeyProvider{pub})
 	require.NoError(t, err)
 	require.False(t, res.Verified)
+}
+
+// The namespace of each verified signature is reported with the key that
+// verified it. The key the caller passed in is left untouched.
+func TestRunVerificationSSHNamespace(t *testing.T) {
+	t.Parallel()
+	priv, pub := newSSHKey(t)
+
+	signer := NewSigner()
+	env, err := signer.WrapPayload("text/plain", []byte("some payload"))
+	require.NoError(t, err)
+
+	// The same key signs twice, under two namespaces.
+	require.NoError(t, signer.Sign(env, []key.PrivateKeyProvider{priv}))
+	priv.Namespace = "git"
+	require.NoError(t, signer.Sign(env, []key.PrivateKeyProvider{priv}))
+	require.Len(t, env.GetSignatures(), 2)
+
+	res, err := (&DefaultVerifier{}).RunVerification(
+		&options.Verifier{}, key.NewVerifier(), env, []key.PublicKeyProvider{pub},
+	)
+	require.NoError(t, err)
+	require.True(t, res.Verified)
+	require.Len(t, res.Keys, 2)
+
+	namespaces := []string{res.Keys[0].SignatureNamespace, res.Keys[1].SignatureNamespace}
+	require.ElementsMatch(t, []string{key.DefaultSSHNamespace, "git"}, namespaces)
+	for _, k := range res.Keys {
+		require.Equal(t, pub.Fingerprint(), k.ID())
+	}
+
+	// Keys without a namespace report none.
+	plainPriv, err := key.NewGenerator().GenerateKeyPair()
+	require.NoError(t, err)
+	plainPub, err := plainPriv.PublicKey()
+	require.NoError(t, err)
+	plainEnv, err := signer.WrapPayload("text/plain", []byte("some payload"))
+	require.NoError(t, err)
+	require.NoError(t, signer.Sign(plainEnv, []key.PrivateKeyProvider{plainPriv}))
+	res, err = (&DefaultVerifier{}).RunVerification(
+		&options.Verifier{}, key.NewVerifier(), plainEnv, []key.PublicKeyProvider{plainPub},
+	)
+	require.NoError(t, err)
+	require.Len(t, res.Keys, 1)
+	require.Empty(t, res.Keys[0].SignatureNamespace)
 }
 
 // An envelope can carry the signatures of an SSH key and of a plain key.

@@ -39,3 +39,12 @@ type SigningKeyFingerprinter interface {
 	// produced signature.
 	SigningKeyFingerprint(signature []byte) (string, error)
 }
+
+// SignatureNamespacer is implemented by public key providers whose
+// signature format carries a namespace: a label the signer chooses to
+// say what a signature is for. SSH signatures do.
+type SignatureNamespacer interface {
+	// SignatureNamespace returns the namespace signature was made
+	// under.
+	SignatureNamespace(signature []byte) (string, error)
+}

@@ -85,6 +85,7 @@ func (dv *DefaultVerifier) RunVerification(
 			provider := providers[i]
 			_, ownFormat := provider.(key.MessageVerifier)
 			fingerprinter, canFingerprint := provider.(key.SigningKeyFingerprinter)
+			namespacer, hasNamespace := provider.(key.SignatureNamespacer)
 			go func() {
 				var (
 					pass bool
@@ -100,13 +101,23 @@ func (dv *DefaultVerifier) RunVerification(
 					pass, err = kv.VerifyDigest(k, digests[k.HashType], sig.GetSig())
 				}
 				if err == nil && pass {
+					// Record what the signature tells about how it was
+					// made on a copy of the key: the same key can verify
+					// more than one signature.
 					matched := k
-					if canFingerprint {
-						if fp, ferr := fingerprinter.SigningKeyFingerprint(sig.GetSig()); ferr == nil {
-							clone := *k
-							clone.SigningKeyFingerprint = fp
-							matched = &clone
+					if canFingerprint || hasNamespace {
+						clone := *k
+						if canFingerprint {
+							if fp, ferr := fingerprinter.SigningKeyFingerprint(sig.GetSig()); ferr == nil {
+								clone.SigningKeyFingerprint = fp
+							}
 						}
+						if hasNamespace {
+							if ns, nerr := namespacer.SignatureNamespace(sig.GetSig()); nerr == nil {
+								clone.SignatureNamespace = ns
+							}
+						}
+						matched = &clone
 					}
 					mutex.Lock()
 					matchedKeys = append(matchedKeys, matched)

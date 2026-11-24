@@ -79,6 +79,19 @@ type Public struct {
 	// successful verification. It is emptu on general-purpose Public keys.
 	SigningKeyFingerprint string `json:"signing_key_fingerprint,omitempty"`
 
+	// SignatureNamespace is the namespace a verified signature was made
+	// under, for signature formats that have one. SSH signatures do: the
+	// namespace is a label the signer chose to say what the signature is
+	// for ("file", "git").
+	//
+	// The namespace is reported as information. Verification does not
+	// depend on it, and it is not part of the identity of the signer.
+	//
+	// Only populated on entries in VerificationResult.Keys after a
+	// successful verification. It is empty on general-purpose Public
+	// keys and on keys whose signatures have no namespace.
+	SignatureNamespace string `json:"signature_namespace,omitempty"`
+
 	// overrideID, when set, is returned by ID() instead of computing
 	// an identifier from the key material. This is used to preserve
 	// the GPG fingerprint when converting from GPGPublic.

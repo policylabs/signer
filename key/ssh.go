@@ -139,6 +139,19 @@ func (s *SSHPublic) VerifyMessage(message, signature []byte) (bool, error) {
 	return true, nil
 }
 
+// SignatureNamespace returns the namespace an SSH signature declares. It
+// implements SignatureNamespacer.
+//
+// The namespace is read from the signature as it is: it says nothing
+// about the signature being valid, which VerifyMessage checks.
+func (s *SSHPublic) SignatureNamespace(signature []byte) (string, error) {
+	sig, err := sshsig.Parse(signature)
+	if err != nil {
+		return "", fmt.Errorf("parsing SSH signature: %w", err)
+	}
+	return sig.Namespace, nil
+}
+
 // underlyingKeyInfo returns the type, scheme and hash of the underlying key.
 func (s *SSHPublic) underlyingKeyInfo() (Type, Scheme, crypto.Hash, error) {
 	stdPub, err := sshPublicKeyToStdlib(s.key)
@@ -284,6 +297,7 @@ func newSSHPrivate(raw crypto.PrivateKey) (*SSHPrivate, error) {
 
 // The SSH providers sign and verify in their own signature format.
 var (
-	_ MessageSigner   = (*SSHPrivate)(nil)
-	_ MessageVerifier = (*SSHPublic)(nil)
+	_ MessageSigner       = (*SSHPrivate)(nil)
+	_ MessageVerifier     = (*SSHPublic)(nil)
+	_ SignatureNamespacer = (*SSHPublic)(nil)
 )
