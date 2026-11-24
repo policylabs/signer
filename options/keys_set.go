@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/carabiner-dev/command"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
@@ -43,6 +44,17 @@ type KeysSign struct {
 	// key.DefaultSSHNamespace.
 	SSHNamespace string
 
+	// SSHAgentKeys names signing keys held by the user's SSH agent.
+	// Each entry is the path to the public key (a .pub file) or its
+	// SHA-256 fingerprint, as `ssh-add -l` prints it ("SHA256:...").
+	// Bound to --signing-ssh-agent-key (repeatable).
+	SSHAgentKeys []string
+
+	// SSHAgentSocket is the path of the socket of the SSH agent that
+	// holds SSHAgentKeys. It is not bound to a flag. When empty, the
+	// SSH_AUTH_SOCK environment variable is used.
+	SSHAgentSocket string
+
 	// CertificatePath is the path to the certificate issued to the first
 	// signing key. Bound to --signing-cert. When set, bundles produced
 	// with the key backend carry the certificate (and the chain below)
@@ -73,6 +85,7 @@ const (
 	flagSigningKey              = "signing-key"
 	flagSigningKeyPassphraseEnv = "signing-key-passphrase-env"
 	flagSigningKeySSHNamespace  = "signing-key-ssh-namespace"
+	flagSigningSSHAgentKey      = "signing-ssh-agent-key"
 	flagSigningCert             = "signing-cert"
 	flagSigningCertChain        = "signing-cert-chain"
 )
@@ -105,6 +118,10 @@ func (k *KeysSign) Config() *command.OptionsSetConfig {
 				flagSigningKeySSHNamespace: {
 					Long: flagSigningKeySSHNamespace,
 					Help: "namespace of the signatures made with SSH signing keys",
+				},
+				flagSigningSSHAgentKey: {
+					Long: flagSigningSSHAgentKey,
+					Help: "signing key held by the SSH agent: path to its public key file or its SHA256 fingerprint",
 				},
 				flagSigningCert: {
 					Long: flagSigningCert,
@@ -143,6 +160,12 @@ func (k *KeysSign) AddFlags(cmd *cobra.Command) {
 		k.SSHNamespace,
 		cfg.HelpText(flagSigningKeySSHNamespace),
 	)
+	pf.StringSliceVar(
+		&k.SSHAgentKeys,
+		cfg.LongFlag(flagSigningSSHAgentKey),
+		k.SSHAgentKeys,
+		cfg.HelpText(flagSigningSSHAgentKey),
+	)
 	pf.StringVar(
 		&k.CertificatePath,
 		cfg.LongFlag(flagSigningCert),
@@ -160,13 +183,27 @@ func (k *KeysSign) AddFlags(cmd *cobra.Command) {
 // Validate checks that every configured signing-key path exists. It
 // does not parse the key material — that happens lazily in
 // ParseSigningKeys so flag-time errors stay cheap and parsing errors
-// surface with file context at use time.
+// surface with file context at use time. The SSH agent is not contacted
+// either: Validate only checks that there is a socket to reach it at.
 func (k *KeysSign) Validate() error {
 	var errs []error
 	for _, p := range k.PrivateKeyPaths {
 		if _, err := os.Stat(p); err != nil {
 			errs = append(errs, fmt.Errorf("checking signing key %q: %w", p, err))
 		}
+	}
+	for _, name := range k.SSHAgentKeys {
+		if isSSHFingerprint(name) {
+			continue
+		}
+		if _, err := os.Stat(name); err != nil {
+			errs = append(errs, fmt.Errorf("checking SSH agent key %q: %w", name, err))
+		}
+	}
+	if len(k.SSHAgentKeys) > 0 && k.sshAgentSocket() == "" {
+		errs = append(errs, fmt.Errorf(
+			"--%s needs a running SSH agent: %s is not set", flagSigningSSHAgentKey, key.SSHAgentSocketEnv,
+		))
 	}
 	if k.CertificatePath != "" {
 		if _, err := os.Stat(k.CertificatePath); err != nil {
@@ -261,6 +298,9 @@ func readPEMCertificates(path string) ([]*x509.Certificate, error) {
 // extras. Encrypted GPG and SSH keys are decrypted using the passphrase
 // read from PassphraseEnvVar when set. SSH keys are set to sign under
 // SSHNamespace; keys supplied with AddKeys are left as they are.
+//
+// The keys named in SSHAgentKeys come last. The SSH agent is contacted
+// to check that it holds each of them.
 func (k *KeysSign) ParseSigningKeys() ([]key.PrivateKeyProvider, error) {
 	parser := key.NewParser()
 
@@ -287,5 +327,59 @@ func (k *KeysSign) ParseSigningKeys() ([]key.PrivateKeyProvider, error) {
 		}
 		out = append(out, provider)
 	}
+
+	for _, name := range k.SSHAgentKeys {
+		fingerprint, err := sshAgentKeyFingerprint(name)
+		if err != nil {
+			return nil, err
+		}
+		agentKey, err := key.SSHAgentKey(k.sshAgentSocket(), fingerprint)
+		if err != nil {
+			return nil, fmt.Errorf("getting signing key %s from the SSH agent: %w", name, err)
+		}
+		agentKey.Namespace = k.SSHNamespace
+		out = append(out, agentKey)
+	}
 	return out, nil
+}
+
+// configured reports whether any signing key was named, in a file or in
+// the SSH agent.
+func (k *KeysSign) configured() bool {
+	return len(k.PrivateKeyPaths) > 0 || len(k.SSHAgentKeys) > 0
+}
+
+// sshAgentSocket returns the path of the socket of the SSH agent.
+func (k *KeysSign) sshAgentSocket() string {
+	if k.SSHAgentSocket != "" {
+		return k.SSHAgentSocket
+	}
+	return os.Getenv(key.SSHAgentSocketEnv)
+}
+
+// sshFingerprintPrefix opens the SHA-256 fingerprints of SSH keys.
+const sshFingerprintPrefix = "SHA256:"
+
+// isSSHFingerprint reports whether name is the fingerprint of an SSH
+// key and not the path to one.
+func isSSHFingerprint(name string) bool {
+	return strings.HasPrefix(name, sshFingerprintPrefix)
+}
+
+// sshAgentKeyFingerprint returns the fingerprint of the SSH agent key
+// called name: name itself when it is a fingerprint, or the fingerprint
+// of the public key in the file it points to.
+func sshAgentKeyFingerprint(name string) (string, error) {
+	if isSSHFingerprint(name) {
+		return name, nil
+	}
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return "", fmt.Errorf("reading SSH public key file %s: %w", name, err)
+	}
+	pub, err := key.ParseSSHPublicKey(data)
+	if err != nil {
+		return "", fmt.Errorf("reading SSH public key file %s: %w", name, err)
+	}
+	return pub.Fingerprint(), nil
 }

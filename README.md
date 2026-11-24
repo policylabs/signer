@@ -138,7 +138,8 @@ key pairs. You can generate keys using the `key.Generator` object. The library
 supports ECDSA, RSA, ed25519, GPG/OpenPGP and SSH key formats.
 
 SSH keys sign and verify in the SSH signature format, the one `ssh-keygen -Y
-sign` produces. See [docs/ssh-keys.md](docs/ssh-keys.md).
+sign` produces. The private key can be read from a file or stay in an SSH
+agent. See [docs/ssh-keys.md](docs/ssh-keys.md).
 
 ## Status
 

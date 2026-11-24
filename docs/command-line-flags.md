@@ -51,12 +51,14 @@ Used standalone (rare) or via `SignerSet` when `--signing-backend=key`.
 | `--signing-key`                | `-K` | yes | path to a private signing key file (PEM PKCS#8/PKCS#1/SEC1, OpenPGP or OpenSSH) |
 | `--signing-key-passphrase-env` |      | no  | envvar name to read the signing-key passphrase from (default: `SIGNING_KEY_PASSPHRASE`) |
 | `--signing-key-ssh-namespace`  |      | no  | namespace of the signatures made with SSH signing keys (default: `file`) |
+| `--signing-ssh-agent-key`      |      | yes | signing key held by the SSH agent at `SSH_AUTH_SOCK`: path to its public key file or its `SHA256:` fingerprint |
 
 `BuildSigner()` parses each path and produces an `*options.Signer`
 with `Backend = BackendKey` and `Keys` populated.
 
-Private keys in the OpenSSH format sign in the SSH signature format; see
-[ssh-keys.md](ssh-keys.md).
+Private keys in the OpenSSH format sign in the SSH signature format, and
+`--signing-ssh-agent-key` signs with a key held by an SSH agent without
+reading the private key; see [ssh-keys.md](ssh-keys.md).
 
 ### `KeysVerify` — `options.DefaultKeysVerify()`
 
@@ -156,7 +158,7 @@ contribute their flags to help text but are otherwise inert.
 **Auto-detection.** When `--signing-backend` is unset, the resolved
 backend is inferred from the populated child *flags*:
 
-- `--signing-key` provided → `key`
+- `--signing-key` or `--signing-ssh-agent-key` provided → `key`
 - `--spiffe-socket` provided → `spiffe`
 - otherwise → `sigstore`
 
@@ -167,7 +169,7 @@ running on a host that happens to have SPIRE installed shouldn't
 silently produce SPIFFE-signed bundles. Set `--signing-backend=spiffe`
 explicitly to opt into env-driven SPIFFE configuration.
 
-If both `--signing-key` and `--spiffe-socket` are set without an
+If both a signing key and `--spiffe-socket` are set without an
 explicit `--signing-backend`, resolution fails — pass
 `--signing-backend` to disambiguate.
 
@@ -253,6 +255,9 @@ mytool
 
 # key — auto-detected from --signing-key
 mytool --signing-key=priv.pem --key=pub.pem
+
+# key — held by the SSH agent, auto-detected from --signing-ssh-agent-key
+mytool --signing-ssh-agent-key ~/.ssh/id_ed25519.pub --key ~/.ssh/id_ed25519.pub
 
 # spiffe — auto-detected from --spiffe-socket
 mytool --spiffe-socket=unix:///run/spire/sockets/api.sock \
