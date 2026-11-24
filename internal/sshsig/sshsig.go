@@ -119,7 +119,7 @@ func Sign(signer ssh.Signer, namespace string, message []byte) (*Signature, erro
 		return nil, errors.New("namespace is empty")
 	}
 	pub := signer.PublicKey()
-	if err := checkKey(pub); err != nil {
+	if err := CheckKey(pub); err != nil {
 		return nil, err
 	}
 
@@ -194,7 +194,7 @@ func Parse(data []byte) (*Signature, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing the public key of the SSH signature: %w", err)
 	}
-	if err := checkKey(pub); err != nil {
+	if err := CheckKey(pub); err != nil {
 		return nil, err
 	}
 	sig.PublicKey = pub
@@ -246,7 +246,7 @@ func (s *Signature) Verify(key ssh.PublicKey, message []byte) error {
 	if key == nil {
 		return errors.New("no public key to verify against")
 	}
-	if err := checkKey(key); err != nil {
+	if err := CheckKey(key); err != nil {
 		return err
 	}
 	if !bytes.Equal(key.Marshal(), s.PublicKey.Marshal()) {
@@ -302,8 +302,9 @@ func (h HashAlgorithm) sum(message []byte) ([]byte, error) {
 	}
 }
 
-// checkKey reports whether signatures of key are supported.
-func checkKey(key ssh.PublicKey) error {
+// CheckKey reports whether key is of a kind whose signatures are supported.
+// Certificates are not, and are reported with ErrCertificate.
+func CheckKey(key ssh.PublicKey) error {
 	if _, ok := key.(*ssh.Certificate); ok {
 		return ErrCertificate
 	}

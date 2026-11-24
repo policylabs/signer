@@ -62,8 +62,8 @@ func (v *Verifier) VerifyMessage(pkeyProv PublicKeyProvider, message, signature 
 		return verifyRSA(pubKey, h.Sum(nil), signature)
 	case ED25519:
 		return verifyEd25519Message(pubKey, message, signature)
-	case GPG:
-		return false, fmt.Errorf("GPG keys must be extracted to their underlying type before verification")
+	case GPG, SSH:
+		return false, fmt.Errorf("%s keys must be extracted to their underlying type before verification", pubKey.Type)
 	default:
 		// *dsa.PublicKey is deprectated, we don't support it.
 		return false, fmt.Errorf("unsupported key type: %T", pubKey)
@@ -99,8 +99,8 @@ func (v *Verifier) VerifyDigest(pkeyProv PublicKeyProvider, digest, signature []
 		return verifyRSA(pubKey, digest, signature)
 	case ED25519:
 		return false, errors.New("cannot verify ed25519 signatures from hash")
-	case GPG:
-		return false, fmt.Errorf("GPG keys must be extracted to their underlying type before verification")
+	case GPG, SSH:
+		return false, fmt.Errorf("%s keys must be extracted to their underlying type before verification", pubKey.Type)
 	default:
 		// *dsa.PublicKey is deprectated, we don't support it. Also ecdh keys
 		return false, fmt.Errorf("unsupported key type: %T", pubKey)

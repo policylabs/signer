@@ -39,6 +39,7 @@ const (
 	ECDSA   Type = "ecdsa"
 	ED25519 Type = "ed25519"
 	GPG     Type = "gpg"
+	SSH     Type = "ssh"
 
 	RsaPkcs1v15         Scheme = "rsassa-pkcs1v15"
 	RsaSsaPssSha256     Scheme = "rsassa-pss-sha256"

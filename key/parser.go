@@ -47,9 +47,10 @@ func WithPassphrase(passphrase string) FnOpt {
 }
 
 // ParsePublicKey parses a public key that can be used to verify.
-// It supports PEM-encoded keys (RSA, ECDSA, ED25519) and GPG keys
-// (ASCII-armored or binary). For GPG keys the underlying crypto public
-// key is extracted and returned as a *Public.
+// It supports PEM-encoded keys (RSA, ECDSA, ED25519), SSH keys in the
+// authorized_keys format and GPG keys (ASCII-armored or binary). For SSH
+// and GPG keys the underlying crypto public key is extracted and
+// returned as a *Public.
 func (p *Parser) ParsePublicKey(pubKeyData []byte, funcs ...FnOpt) (*Public, error) {
 	opts := KeyParseOptions{}
 	for _, f := range funcs {
@@ -59,15 +60,19 @@ func (p *Parser) ParsePublicKey(pubKeyData []byte, funcs ...FnOpt) (*Public, err
 	// Try PEM first
 	k, pemErr := parseKeyBytes(pubKeyData)
 	if pemErr != nil {
-		// Try GPG (ASCII-armored or binary)
-		gpgKeys, gpgErr := ParseGPGPublicKey(pubKeyData)
-		if gpgErr != nil || len(gpgKeys) == 0 {
+		// Then SSH, then GPG (ASCII-armored or binary)
+		var provider PublicKeyProvider
+		if sshKey, sshErr := ParseSSHPublicKey(pubKeyData); sshErr == nil {
+			provider = sshKey
+		} else if gpgKeys, gpgErr := ParseGPGPublicKey(pubKeyData); gpgErr == nil && len(gpgKeys) > 0 {
+			provider = gpgKeys[0]
+		} else {
 			return nil, fmt.Errorf("parsing public key: %w", pemErr)
 		}
 		var err error
-		k, err = gpgKeys[0].PublicKey()
+		k, err = provider.PublicKey()
 		if err != nil {
-			return nil, fmt.Errorf("extracting public key from GPG data: %w", err)
+			return nil, fmt.Errorf("extracting public key from key data: %w", err)
 		}
 	}
 
@@ -80,9 +85,11 @@ func (p *Parser) ParsePublicKey(pubKeyData []byte, funcs ...FnOpt) (*Public, err
 }
 
 // ParsePublicKeyProvider parses public key data and returns a PublicKeyProvider.
-// It supports PEM-encoded keys (RSA, ECDSA, ED25519) and GPG keys (ASCII-armored
-// or binary). For PEM keys the returned provider is a *Public; for GPG keys it
-// is a *GPGPublic which preserves the full OpenPGP metadata.
+// It supports PEM-encoded keys (RSA, ECDSA, ED25519), SSH keys in the
+// authorized_keys format and GPG keys (ASCII-armored or binary). For PEM keys
+// the returned provider is a *Public; for SSH keys it is an *SSHPublic, which
+// verifies SSH signatures; for GPG keys it is a *GPGPublic which preserves the
+// full OpenPGP metadata.
 func (p *Parser) ParsePublicKeyProvider(pubKeyData []byte, funcs ...FnOpt) (PublicKeyProvider, error) {
 	opts := KeyParseOptions{}
 	for _, f := range funcs {
@@ -100,13 +107,18 @@ func (p *Parser) ParsePublicKeyProvider(pubKeyData []byte, funcs ...FnOpt) (Publ
 		return k, nil
 	}
 
+	// Try SSH (an authorized_keys line)
+	if sshKey, sshErr := ParseSSHPublicKey(pubKeyData); sshErr == nil {
+		return sshKey, nil
+	}
+
 	// Try GPG (ASCII-armored or binary)
 	gpgKeys, gpgErr := ParseGPGPublicKey(pubKeyData)
 	if gpgErr == nil && len(gpgKeys) > 0 {
 		return gpgKeys[0], nil
 	}
 
-	// Neither worked, return the PEM error as it's the most common format
+	// None worked, return the PEM error as it's the most common format
 	return nil, fmt.Errorf("parsing public key: %w", pemErr)
 }
 
@@ -118,6 +130,9 @@ func (p *Parser) ParsePublicKeyProvider(pubKeyData []byte, funcs ...FnOpt) (Publ
 //   - OpenPGP private keys (ASCII-armored or binary), encrypted or
 //     plain. Encrypted keys require WithPassphrase. Returned as
 //     *GPGPrivate to preserve OpenPGP entity metadata.
+//   - Private keys in the OpenSSH format (the one ssh-keygen writes),
+//     encrypted or plain. Encrypted keys require WithPassphrase.
+//     Returned as *SSHPrivate, which makes SSH signatures.
 //
 // Tries OpenPGP first because GPG armored data is also valid PEM in
 // some sense; the GPG parser correctly rejects non-OpenPGP PEM input
@@ -132,6 +147,16 @@ func (p *Parser) ParsePrivateKeyProvider(privKeyData []byte, funcs ...FnOpt) (Pr
 	gpgKeys, gpgErr := ParseGPGPrivateKey(privKeyData, []byte(opts.Passphrase))
 	if gpgErr == nil && len(gpgKeys) > 0 {
 		return gpgKeys[0], nil
+	}
+
+	// Then the OpenSSH format. It is a PEM block the PEM parser below
+	// does not read, so its errors are reported as they are.
+	if isOpenSSHPrivateKey(privKeyData) {
+		sshKey, err := ParseSSHPrivateKey(privKeyData, []byte(opts.Passphrase))
+		if err != nil {
+			return nil, fmt.Errorf("parsing private key: %w", err)
+		}
+		return sshKey, nil
 	}
 
 	// Fall back to PEM private-key formats.

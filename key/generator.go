@@ -183,6 +183,9 @@ func (gen *Generator) GenerateKeyPair(funcs ...FnGenOpt) (*Private, error) {
 	case GPG:
 		return nil, fmt.Errorf("GPG key generation not supported, use GenerateGPGKeyPair")
 
+	case SSH:
+		return nil, fmt.Errorf("SSH key generation not supported")
+
 	default:
 		return nil, fmt.Errorf("key type not supported")
 	}
