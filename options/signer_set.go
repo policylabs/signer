@@ -160,12 +160,12 @@ func (s *SignerSet) resolveBackend() (Backend, error) {
 		}
 	}
 
-	keyConfigured := s.Keys != nil && len(s.Keys.PrivateKeyPaths) > 0
+	keyConfigured := s.Keys != nil && s.Keys.configured()
 	spiffeConfigured := s.Spiffe != nil && s.Spiffe.Sign != nil && s.Spiffe.Sign.SocketPath != ""
 
 	switch {
 	case keyConfigured && spiffeConfigured:
-		return "", errors.New("SignerSet: both --signing-key and --spiffe-socket are set; pass --signing-backend explicitly to disambiguate")
+		return "", errors.New("SignerSet: both a signing key (--signing-key or --signing-ssh-agent-key) and --spiffe-socket are set; pass --signing-backend explicitly to disambiguate")
 	case keyConfigured:
 		return BackendKey, nil
 	case spiffeConfigured:

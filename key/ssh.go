@@ -163,6 +163,10 @@ func (s *SSHPublic) underlyingKeyInfo() (Type, Scheme, crypto.Hash, error) {
 
 // SSHPrivate wraps an SSH private key. It implements the Key,
 // PublicKeyProvider, PrivateKeyProvider and MessageSigner interfaces.
+//
+// The key material may not be at hand: keys held by an SSH agent (see
+// SSHAgentKey) sign and tell their public half, but PrivateKey returns
+// an error for them.
 type SSHPrivate struct {
 	// Namespace is the namespace of the signatures the key makes. When
 	// empty, DefaultSSHNamespace is used.
@@ -170,7 +174,8 @@ type SSHPrivate struct {
 
 	signer ssh.Signer
 
-	// raw is the underlying crypto private key.
+	// raw is the underlying crypto private key. It is nil when the key
+	// is held somewhere else, as the keys of an SSH agent are.
 	raw crypto.PrivateKey
 }
 

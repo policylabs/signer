@@ -30,12 +30,8 @@ Only private keys in the OpenSSH format are handled as SSH keys. A
 private key in another PEM format (PKCS #8, PKCS #1, SEC 1) is a plain
 key and signs with a bare signature, even if SSH can use that file too.
 
-Not supported:
-
-- **SSH certificates.** A signature made with a certificate does not
-  verify, and a certificate is refused as a key.
-- **Keys held by `ssh-agent`.** The private key has to be read from a
-  file.
+SSH certificates are not supported: a signature made with a
+certificate does not verify, and a certificate is refused as a key.
 
 ## Signing and verifying
 
@@ -103,6 +99,62 @@ signature does not verify against the same key material loaded as a
 plain key, and a bare signature does not verify against an SSH public
 key.
 
+## Keys held by an SSH agent
+
+The private key does not have to be in a file. An SSH agent
+(`ssh-agent`, or the one of a password manager) holds keys and signs
+with them for other programs, so the key never leaves it. Signing asks
+the agent, and the envelope that comes out is the same one a key read
+from a file produces: verification and the identity of the signer do
+not change.
+
+Name the key by the path to its public key or by its fingerprint, as
+`ssh-add -l` prints it:
+
+```sh
+mytool --signing-ssh-agent-key ~/.ssh/id_ed25519.pub
+mytool --signing-ssh-agent-key SHA256:nzPv/9uwC5nIic8SUw3EYVUOPycf1vDtFcpSar/D7QU
+```
+
+The flag is repeatable and selects the key backend, as `--signing-key`
+does. The agent is the one `SSH_AUTH_SOCK` points to.
+
+In code, `key.SSHAgentKey` takes the path of the agent's socket and the
+fingerprint of the key:
+
+```golang
+privateKey, err := key.SSHAgentKey(
+	os.Getenv(key.SSHAgentSocketEnv),
+	"SHA256:nzPv/9uwC5nIic8SUw3EYVUOPycf1vDtFcpSar/D7QU",
+)
+if err != nil {
+	panic(err)
+}
+envelope, err := signer.NewSigner().SignMessageToDSSE(
+	[]byte("Hello world"),
+	options.WithKey(privateKey),
+	options.WithPayloadType("text/plain"),
+)
+```
+
+`key.SSHAgentKeys` lists the keys an agent holds.
+
+What to expect:
+
+- **A key has to be named.** There is no "use whatever the agent
+  holds".
+- **A missing key fails early.** The agent is asked for the key when
+  the signing keys are loaded, and the error lists the keys it does
+  hold.
+- **Signing can wait for you.** If the agent asks to confirm each use
+  of the key, signing blocks until you answer. There is no timeout.
+- **The agent is contacted for each signature**, so a restarted agent
+  keeps working as long as it listens on the same socket.
+- **Unix sockets only.** Agents are not supported on Windows.
+- **Hardware keys are untested.** Keys on a security token (the `sk-`
+  types) should work, as the agent does the signing, but they have not
+  been tried.
+
 ## Namespaces
 
 Every SSH signature is made under a namespace, a label the signer
@@ -114,7 +166,8 @@ cannot be changed afterwards.
 - **Signing** uses `file` unless told otherwise: with
   `key.WithSSHNamespace` when parsing the key, with the `Namespace`
   field of a `key.SSHPrivate`, or with the
-  `--signing-key-ssh-namespace` flag.
+  `--signing-ssh-namespace` flag, which also applies to the keys
+  held by an SSH agent.
 - **Verifying** accepts any namespace. The signature is verified under
   the namespace it declares, which is never compared to an expected
   value.

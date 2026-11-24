@@ -255,6 +255,20 @@ func TestSignerSetAutoDetect(t *testing.T) {
 		require.Equal(t, BackendKey, backend)
 	})
 
+	t.Run("ssh-agent-key-flag-selects-key", func(t *testing.T) {
+		t.Setenv("SPIFFE_ENDPOINT_SOCKET", "")
+		set := DefaultSignerSet()
+		set.Keys.SSHAgentKeys = []string{"SHA256:nzPv/9uwC5nIic8SUw3EYVUOPycf1vDtFcpSar/D7QU"}
+
+		backend, err := set.resolveBackend()
+		require.NoError(t, err)
+		require.Equal(t, BackendKey, backend)
+
+		set.Spiffe.Sign.SocketPath = testSpiffeSocket
+		_, err = set.resolveBackend()
+		require.ErrorContains(t, err, "--signing-backend")
+	})
+
 	t.Run("spiffe-socket-flag-selects-spiffe", func(t *testing.T) {
 		t.Setenv("SPIFFE_ENDPOINT_SOCKET", "")
 		set := DefaultSignerSet()

@@ -8,12 +8,15 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 
 	api "github.com/policylabs/signer/api/v1"
 	"github.com/policylabs/signer/internal/sshsig"
@@ -111,6 +114,84 @@ func TestSSHSignBundle(t *testing.T) {
 	require.True(t, res.Verified)
 	require.Len(t, res.Keys, 1)
 	require.Equal(t, pub.Fingerprint(), res.Keys[0].ID())
+}
+
+// A key held by an SSH agent signs envelopes and bundles like one read
+// from a file, even though its private key material cannot be reached.
+func TestSSHAgentSignStatement(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("SSH agents are not supported on Windows")
+	}
+
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	keyring := agent.NewKeyring()
+	require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: edKey}))
+
+	// Socket paths are limited to about a hundred bytes, which t.TempDir
+	// can exceed.
+	dir, err := os.MkdirTemp("", "agent") //nolint:usetesting // t.TempDir is too long for a socket
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(dir) }) //nolint:errcheck,gosec // best effort
+	socket := filepath.Join(dir, "s")
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
+	require.NoError(t, err)
+	t.Cleanup(func() { listener.Close() }) //nolint:errcheck,gosec // best effort
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()              //nolint:errcheck // best effort
+				agent.ServeAgent(keyring, conn) //nolint:errcheck,gosec // ends when the client hangs up
+			}()
+		}
+	}()
+
+	held, err := key.SSHAgentKeys(socket)
+	require.NoError(t, err)
+	require.Len(t, held, 1)
+	pub := held[0]
+
+	priv, err := key.SSHAgentKey(socket, pub.Fingerprint())
+	require.NoError(t, err)
+	_, err = priv.PrivateKey()
+	require.Error(t, err)
+
+	t.Run("envelope", func(t *testing.T) {
+		t.Parallel()
+		art, err := keySigner().SignStatement([]byte(keyBundleStatement), options.WithKey(priv))
+		require.NoError(t, err)
+		require.Equal(t, ArtifactKindEnvelope, art.Kind())
+
+		res, err := NewVerifier().VerifyStatement(art, options.WithPublicKeys(pub))
+		require.NoError(t, err)
+		require.Equal(t, api.VerificationStatus_VERIFIED, res.GetSignature().GetStatus())
+		require.Len(t, res.GetSignature().GetIdentities(), 1)
+		require.Equal(t,
+			"key::ed25519::"+pub.Fingerprint(), res.GetSignature().GetIdentities()[0].Principal(),
+		)
+	})
+
+	t.Run("bundle", func(t *testing.T) {
+		t.Parallel()
+		art, err := keySigner().SignStatement(
+			[]byte(keyBundleStatement), options.WithKey(priv), options.WithBundle(),
+		)
+		require.NoError(t, err)
+		require.Equal(t, ArtifactKindBundle, art.Kind())
+
+		b := roundTrip(t, art)
+		require.Equal(t, expectedHint(t, pub.GetKey()), b.GetVerificationMaterial().GetPublicKey().GetHint())
+
+		res, err := NewVerifier().VerifyParsedDSSE(b.GetDsseEnvelope(), []key.PublicKeyProvider{pub})
+		require.NoError(t, err)
+		require.True(t, res.Verified)
+	})
 }
 
 // The envelopes signed with SSH keys by other tools verify as statements.
