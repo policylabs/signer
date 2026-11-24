@@ -327,6 +327,41 @@ func TestSSH_Namespace(t *testing.T) {
 	require.True(t, ok)
 }
 
+// The parser sets the namespace SSH keys sign under. Other keys ignore
+// it.
+func TestParser_SSHNamespace(t *testing.T) {
+	t.Parallel()
+	parser := NewParser()
+	message := []byte("a message to sign")
+
+	namespaceOf := func(prov PrivateKeyProvider) string {
+		sigBytes, err := NewSigner().SignMessage(prov, message)
+		require.NoError(t, err)
+		sig, err := sshsig.Parse(sigBytes)
+		require.NoError(t, err)
+		return sig.Namespace
+	}
+
+	prov, err := parser.ParsePrivateKeyProvider(readTestdata(t, "ssh-ed25519"))
+	require.NoError(t, err)
+	require.Equal(t, DefaultSSHNamespace, namespaceOf(prov))
+
+	prov, err = parser.ParsePrivateKeyProvider(readTestdata(t, "ssh-ed25519"), WithSSHNamespace("git"))
+	require.NoError(t, err)
+	require.Equal(t, "git", namespaceOf(prov))
+
+	// An empty namespace is the default one.
+	prov, err = parser.ParsePrivateKeyProvider(readTestdata(t, "ssh-ed25519"), WithSSHNamespace(""))
+	require.NoError(t, err)
+	require.Equal(t, DefaultSSHNamespace, namespaceOf(prov))
+
+	plain, err := NewGenerator().GenerateKeyPair()
+	require.NoError(t, err)
+	prov, err = parser.ParsePrivateKeyProvider([]byte(plain.Data), WithSSHNamespace("git"))
+	require.NoError(t, err)
+	require.IsType(t, &Private{}, prov)
+}
+
 // A signature made by ssh-keygen verifies through the parser and the key
 // verifier.
 func TestSSH_FixtureVerify(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	api "github.com/policylabs/signer/api/v1"
+	"github.com/policylabs/signer/internal/sshsig"
 	"github.com/policylabs/signer/key"
 	"github.com/policylabs/signer/options"
 )
@@ -69,6 +70,28 @@ func TestSSHSignVerifyStatement(t *testing.T) {
 	res, err = NewVerifier().VerifyStatementBytes(buf.Bytes(), options.WithPublicKeys(otherPub))
 	require.NoError(t, err)
 	require.Equal(t, api.VerificationStatus_FAILED, res.GetSignature().GetStatus())
+}
+
+// The namespace an SSH key signs under is the signer's choice. The
+// verifier takes whatever namespace the signature declares.
+func TestSSHSignStatementNamespace(t *testing.T) {
+	t.Parallel()
+	priv, pub := newSSHKey(t)
+	priv.Namespace = "git"
+
+	art, err := keySigner().SignStatement([]byte(keyBundleStatement), options.WithKey(priv))
+	require.NoError(t, err)
+	env, ok := art.(*EnvelopeArtifact)
+	require.True(t, ok)
+	require.Len(t, env.Envelope.GetSignatures(), 1)
+
+	sig, err := sshsig.Parse(env.Envelope.GetSignatures()[0].GetSig())
+	require.NoError(t, err)
+	require.Equal(t, "git", sig.Namespace)
+
+	res, err := NewVerifier().VerifyStatement(art, options.WithPublicKeys(pub))
+	require.NoError(t, err)
+	require.Equal(t, api.VerificationStatus_VERIFIED, res.GetSignature().GetStatus())
 }
 
 // An SSH key signs into a bundle like any other key.

@@ -5,6 +5,7 @@ package options
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/policylabs/signer/key"
 )
@@ -32,6 +34,95 @@ func writeECPrivateKey(t *testing.T) string {
 	path := filepath.Join(dir, "key.pem")
 	require.NoError(t, os.WriteFile(path, pemBytes, 0o600))
 	return path
+}
+
+// writeSSHPrivateKey writes an ed25519 private key in the OpenSSH format
+// to a fresh file and returns the path.
+func writeSSHPrivateKey(t *testing.T) string {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	block, err := ssh.MarshalPrivateKey(priv, "")
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "id_ed25519")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(block), 0o600))
+	return path
+}
+
+// The SSH namespace flag sets the namespace SSH signing keys sign under.
+// Keys of other formats are not affected.
+func TestKeysSignSSHNamespace(t *testing.T) {
+	t.Parallel()
+
+	// namespaces parses the signing keys and returns the namespace each
+	// SSH key among them signs under.
+	namespaces := func(t *testing.T, k *KeysSign) []string {
+		t.Helper()
+		providers, err := k.ParseSigningKeys()
+		require.NoError(t, err)
+		var out []string
+		for _, p := range providers {
+			sshKey, ok := p.(*key.SSHPrivate)
+			if !ok {
+				continue
+			}
+			namespace := sshKey.Namespace
+			if namespace == "" {
+				namespace = key.DefaultSSHNamespace
+			}
+			out = append(out, namespace)
+		}
+		return out
+	}
+
+	t.Run("default", func(t *testing.T) {
+		t.Parallel()
+		k := DefaultKeysSign()
+		require.Equal(t, "file", k.SSHNamespace)
+		k.PrivateKeyPaths = []string{writeSSHPrivateKey(t)}
+		require.Equal(t, []string{"file"}, namespaces(t, k))
+	})
+
+	t.Run("flag", func(t *testing.T) {
+		t.Parallel()
+		k := DefaultKeysSign()
+		cmd := &cobra.Command{Use: "test"}
+		k.AddFlags(cmd)
+		flag := cmd.PersistentFlags().Lookup("signing-key-ssh-namespace")
+		require.NotNil(t, flag)
+		require.Equal(t, "file", flag.DefValue)
+
+		require.NoError(t, cmd.PersistentFlags().Parse([]string{
+			"--signing-key-ssh-namespace=git",
+			"--signing-key=" + writeSSHPrivateKey(t),
+			"--signing-key=" + writeECPrivateKey(t),
+			"--signing-key=" + writeSSHPrivateKey(t),
+		}))
+		providers, err := k.ParseSigningKeys()
+		require.NoError(t, err)
+		require.Len(t, providers, 3)
+		require.Equal(t, []string{"git", "git"}, namespaces(t, k))
+	})
+
+	t.Run("empty-falls-back-to-default", func(t *testing.T) {
+		t.Parallel()
+		k := &KeysSign{PrivateKeyPaths: []string{writeSSHPrivateKey(t)}}
+		require.Equal(t, []string{"file"}, namespaces(t, k))
+	})
+
+	t.Run("added-keys-are-left-alone", func(t *testing.T) {
+		t.Parallel()
+		data, err := os.ReadFile(writeSSHPrivateKey(t))
+		require.NoError(t, err)
+		added, err := key.ParseSSHPrivateKey(data, nil)
+		require.NoError(t, err)
+		added.Namespace = "custom"
+
+		k := DefaultKeysSign()
+		k.SSHNamespace = "git"
+		k.AddKeys(added)
+		require.Equal(t, []string{"custom"}, namespaces(t, k))
+	})
 }
 
 func TestKeysSignAddFlags(t *testing.T) {

@@ -36,6 +36,13 @@ type KeysSign struct {
 	// --signing-key-passphrase-env.
 	PassphraseEnvVar string
 
+	// SSHNamespace is the namespace of the signatures made with SSH
+	// signing keys, a label that says what the signatures are for.
+	// Bound to --signing-key-ssh-namespace. Signing keys of other
+	// formats ignore it. When empty, SSH keys sign under
+	// key.DefaultSSHNamespace.
+	SSHNamespace string
+
 	// CertificatePath is the path to the certificate issued to the first
 	// signing key. Bound to --signing-cert. When set, bundles produced
 	// with the key backend carry the certificate (and the chain below)
@@ -65,6 +72,7 @@ const defaultPassphraseEnvVar = "SIGNING_KEY_PASSPHRASE"
 const (
 	flagSigningKey              = "signing-key"
 	flagSigningKeyPassphraseEnv = "signing-key-passphrase-env"
+	flagSigningKeySSHNamespace  = "signing-key-ssh-namespace"
 	flagSigningCert             = "signing-cert"
 	flagSigningCertChain        = "signing-cert-chain"
 )
@@ -76,6 +84,7 @@ const (
 func DefaultKeysSign() *KeysSign {
 	return &KeysSign{
 		PassphraseEnvVar: defaultPassphraseEnvVar,
+		SSHNamespace:     key.DefaultSSHNamespace,
 	}
 }
 
@@ -92,6 +101,10 @@ func (k *KeysSign) Config() *command.OptionsSetConfig {
 				flagSigningKeyPassphraseEnv: {
 					Long: flagSigningKeyPassphraseEnv,
 					Help: "envvar to read the signing key passphrase from",
+				},
+				flagSigningKeySSHNamespace: {
+					Long: flagSigningKeySSHNamespace,
+					Help: "namespace of the signatures made with SSH signing keys",
 				},
 				flagSigningCert: {
 					Long: flagSigningCert,
@@ -123,6 +136,12 @@ func (k *KeysSign) AddFlags(cmd *cobra.Command) {
 		cfg.LongFlag(flagSigningKeyPassphraseEnv),
 		k.PassphraseEnvVar,
 		cfg.HelpText(flagSigningKeyPassphraseEnv),
+	)
+	pf.StringVar(
+		&k.SSHNamespace,
+		cfg.LongFlag(flagSigningKeySSHNamespace),
+		k.SSHNamespace,
+		cfg.HelpText(flagSigningKeySSHNamespace),
 	)
 	pf.StringVar(
 		&k.CertificatePath,
@@ -240,7 +259,8 @@ func readPEMCertificates(path string) ([]*x509.Certificate, error) {
 // ParseSigningKeys reads and parses every entry in PrivateKeyPaths
 // and returns the resulting providers prepended with AddKeys-supplied
 // extras. Encrypted GPG keys are decrypted using the passphrase read
-// from PassphraseEnvVar when set.
+// from PassphraseEnvVar when set. SSH keys are set to sign under
+// SSHNamespace; keys supplied with AddKeys are left as they are.
 func (k *KeysSign) ParseSigningKeys() ([]key.PrivateKeyProvider, error) {
 	parser := key.NewParser()
 
@@ -249,6 +269,10 @@ func (k *KeysSign) ParseSigningKeys() ([]key.PrivateKeyProvider, error) {
 		if passphrase := os.Getenv(k.PassphraseEnvVar); passphrase != "" {
 			fnOpts = append(fnOpts, key.WithPassphrase(passphrase))
 		}
+	}
+
+	if k.SSHNamespace != "" {
+		fnOpts = append(fnOpts, key.WithSSHNamespace(k.SSHNamespace))
 	}
 
 	out := append([]key.PrivateKeyProvider{}, k.extraKeys...)

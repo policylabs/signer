@@ -50,6 +50,7 @@ Used standalone (rare) or via `SignerSet` when `--signing-backend=key`.
 | --- | --- | --- | --- |
 | `--signing-key`                | `-K` | yes | path to a private signing key file (PEM PKCS#8/PKCS#1/SEC1 or OpenPGP) |
 | `--signing-key-passphrase-env` |      | no  | envvar name to read the signing-key passphrase from (default: `SIGNING_KEY_PASSPHRASE`) |
+| `--signing-key-ssh-namespace`  |      | no  | namespace of the signatures made with SSH signing keys (default: `file`) |
 
 `BuildSigner()` parses each path and produces an `*options.Signer`
 with `Backend = BackendKey` and `Keys` populated.

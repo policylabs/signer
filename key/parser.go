@@ -27,6 +27,10 @@ type KeyParseOptions struct {
 	// private keys ignore this field. Empty + encrypted key + parser
 	// invocation is an error.
 	Passphrase string
+	// SSHNamespace is the namespace of the signatures made with SSH
+	// private keys. Keys of other formats ignore this field. When empty,
+	// SSH keys sign under DefaultSSHNamespace.
+	SSHNamespace string
 }
 
 type FnOpt func(*KeyParseOptions)
@@ -43,6 +47,16 @@ func WithScheme(scheme Scheme) FnOpt {
 func WithPassphrase(passphrase string) FnOpt {
 	return func(kpo *KeyParseOptions) {
 		kpo.Passphrase = passphrase
+	}
+}
+
+// WithSSHNamespace sets the namespace of the signatures made with SSH
+// private keys. The namespace is a label the signer chooses to say what
+// a signature is for; SSH keys sign under DefaultSSHNamespace unless
+// told otherwise. Keys of other formats ignore it.
+func WithSSHNamespace(namespace string) FnOpt {
+	return func(kpo *KeyParseOptions) {
+		kpo.SSHNamespace = namespace
 	}
 }
 
@@ -156,6 +170,7 @@ func (p *Parser) ParsePrivateKeyProvider(privKeyData []byte, funcs ...FnOpt) (Pr
 		if err != nil {
 			return nil, fmt.Errorf("parsing private key: %w", err)
 		}
+		sshKey.Namespace = opts.SSHNamespace
 		return sshKey, nil
 	}
 
