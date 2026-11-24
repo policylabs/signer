@@ -4,7 +4,6 @@
 package key
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -17,8 +16,6 @@ import (
 	"math/big"
 	"strings"
 	"time"
-
-	"github.com/ProtonMail/go-crypto/openpgp"
 )
 
 type Verifier struct{}
@@ -37,15 +34,13 @@ type VerificationResult struct {
 
 // VerifyMessage verifies the signature by getting the whole message
 func (v *Verifier) VerifyMessage(pkeyProv PublicKeyProvider, message, signature []byte) (bool, error) {
-	// OpenPGP entities are verified exclusively via the OpenPGP path so
-	// that subkey binding signatures, key-usage flags, and revocation are
-	// enforced by the openpgp library. We intentionally do not fall
-	// through to raw crypto verification on the entity's primary-key
-	// material — that would accept signatures the entity's self-signatures
-	// forbid (e.g. a primary-key signature on an entity that restricts
-	// signing to a subkey, or a signature from a revoked/expired subkey).
-	if gpgKey, ok := pkeyProv.(*GPGPublic); ok {
-		return verifyGPGDetachedSignature(gpgKey, message, signature), nil
+	// Providers with a signature format of their own (OpenPGP entities,
+	// for example) are verified exclusively by the provider. We
+	// intentionally do not fall through to raw crypto verification on
+	// the underlying key material, as that would skip the rules the
+	// format enforces.
+	if mv, ok := pkeyProv.(MessageVerifier); ok {
+		return mv.VerifyMessage(message, signature)
 	}
 
 	pubKey, err := pkeyProv.PublicKey()
@@ -194,24 +189,6 @@ func verifyECDSA(pubKey *Public, digest, signature []byte) (bool, error) {
 
 	// Verify the signature
 	return ecdsa.Verify(ecdsaKey, digest, sig.R, sig.S), nil
-}
-
-// verifyGPGDetachedSignature verifies an OpenPGP detached signature (armored
-// or binary) against the message using the GPG key's entity.
-func verifyGPGDetachedSignature(gpgKey *GPGPublic, message, signature []byte) bool {
-	keyring := openpgp.EntityList{gpgKey.Entity()}
-
-	// Try armored signature first, then binary
-	signer, err := openpgp.CheckArmoredDetachedSignature(keyring, bytes.NewReader(message), bytes.NewReader(signature), nil)
-	if err == nil && signer != nil {
-		return true
-	}
-	signer, err = openpgp.CheckDetachedSignature(keyring, bytes.NewReader(message), bytes.NewReader(signature), nil)
-	if err == nil && signer != nil {
-		return true
-	}
-
-	return false
 }
 
 // verifyEd25519 verifies an Ed25519 signature

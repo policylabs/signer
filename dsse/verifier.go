@@ -83,24 +83,26 @@ func (dv *DefaultVerifier) RunVerification(
 	for _, sig := range env.GetSignatures() {
 		for i, k := range publicKeys {
 			provider := providers[i]
-			gpgProvider, isGPG := provider.(*key.GPGPublic)
+			_, ownFormat := provider.(key.MessageVerifier)
+			fingerprinter, canFingerprint := provider.(key.SigningKeyFingerprinter)
 			go func() {
 				var (
 					pass bool
 					err  error
 				)
-				// GPG signatures are OpenPGP packets and must be verified
-				// as detached signatures over the PAE message. ED25519
-				// signs the message directly (no prehash).
-				if isGPG || k.HashType == 0 {
+				// Providers with a signature format of their own (OpenPGP
+				// packets, for example) verify the whole PAE message
+				// themselves. ED25519 signs the message directly (no
+				// prehash).
+				if ownFormat || k.HashType == 0 {
 					pass, err = kv.VerifyMessage(provider, paeMessage, sig.GetSig())
 				} else {
 					pass, err = kv.VerifyDigest(k, digests[k.HashType], sig.GetSig())
 				}
 				if err == nil && pass {
 					matched := k
-					if isGPG {
-						if fp, ferr := gpgProvider.SigningKeyFingerprint(sig.GetSig()); ferr == nil {
+					if canFingerprint {
+						if fp, ferr := fingerprinter.SigningKeyFingerprint(sig.GetSig()); ferr == nil {
 							clone := *k
 							clone.SigningKeyFingerprint = fp
 							matched = &clone

@@ -204,6 +204,31 @@ func (g *GPGPublic) SigningKeyFingerprint(signature []byte) (string, error) {
 	return "", errors.New("signature has no issuer identifier")
 }
 
+// VerifyMessage verifies an OpenPGP detached signature (armored or binary)
+// of message against the entity. It implements MessageVerifier.
+//
+// Verification goes through the openpgp library so that subkey binding
+// signatures, key-usage flags and revocation are enforced. Checking the
+// signature against the raw primary key material instead would accept
+// signatures the entity's self-signatures forbid (a primary-key signature
+// on an entity that restricts signing to a subkey, or a signature from a
+// revoked or expired subkey).
+func (g *GPGPublic) VerifyMessage(message, signature []byte) (bool, error) {
+	keyring := openpgp.EntityList{g.entity}
+
+	// Try armored signature first, then binary
+	signer, err := openpgp.CheckArmoredDetachedSignature(keyring, bytes.NewReader(message), bytes.NewReader(signature), nil)
+	if err == nil && signer != nil {
+		return true, nil
+	}
+	signer, err = openpgp.CheckDetachedSignature(keyring, bytes.NewReader(message), bytes.NewReader(signature), nil)
+	if err == nil && signer != nil {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // parseSignaturePacket extracts the first Signature packet from raw bytes,
 // handling both ASCII-armored and binary OpenPGP encodings.
 func parseSignaturePacket(data []byte) (*packet.Signature, error) {
@@ -352,6 +377,20 @@ func (g *GPGPrivate) PublicKey() (*Public, error) {
 // GPGPublicKey returns a GPGPublic view of this private key (stripping private material reference).
 func (g *GPGPrivate) GPGPublicKey() *GPGPublic {
 	return &GPGPublic{entity: g.entity}
+}
+
+// SignMessage signs message and returns a binary OpenPGP detached
+// signature packet. It implements MessageSigner.
+//
+// Signing goes through the entity, not the extracted key material, so
+// the signing subkey is selected by the openpgp library and the packet
+// records which key issued the signature.
+func (g *GPGPrivate) SignMessage(message []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := openpgp.DetachSign(&buf, g.entity, bytes.NewReader(message), nil); err != nil {
+		return nil, fmt.Errorf("signing with GPG entity: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // Fingerprint returns the hex-encoded fingerprint of the primary key.
@@ -573,3 +612,10 @@ func newGPGPrivate(entity *openpgp.Entity) (*GPGPrivate, error) {
 	}
 	return &GPGPrivate{entity: entity}, nil
 }
+
+// The OpenPGP providers sign and verify in their own signature format.
+var (
+	_ MessageSigner           = (*GPGPrivate)(nil)
+	_ MessageVerifier         = (*GPGPublic)(nil)
+	_ SigningKeyFingerprinter = (*GPGPublic)(nil)
+)
