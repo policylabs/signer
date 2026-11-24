@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -277,7 +278,9 @@ func TestVerifySSHKeygenFixtures(t *testing.T) {
 			require.Equal(t, tc.hash, sig.HashAlgorithm)
 			require.NoError(t, sig.Verify(readPublicKey(t, tc.key), message))
 
-			require.Error(t, sig.Verify(readPublicKey(t, tc.key), append(message, '!')))
+			// The subtests share message: the altered one has to be a copy.
+			altered := slices.Concat(message, []byte("!"))
+			require.Error(t, sig.Verify(readPublicKey(t, tc.key), altered))
 			require.ErrorIs(t, sig.Verify(readPublicKey(t, "gittuf-app.pub"), message), ErrKeyMismatch)
 
 			// Our armor is byte for byte the one ssh-keygen wrote.
