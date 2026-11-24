@@ -3,7 +3,7 @@
 Easy digital signing library with support for [sigstore](https://www.sigstore.dev/)
 bundles, [DSSE](https://github.com/secure-systems-lab/dsse) envelopes and
 support for easy signing with key pairs. The library handles ECDSA, RSA,
-ed25519 and GPG/OpenPGP keys.
+ed25519, GPG/OpenPGP and SSH keys.
 
 ## Signing and Creating Sigstore Bundles
 
@@ -130,11 +130,15 @@ operations. The `key.Public` object is the most basic `PublicKeyProvider` but
 we may implement more complex providers such as cache interfaces and key
 management systems clients. For GPG/OpenPGP keys, the `key.GPGPublic` provider
 preserves full key metadata (key IDs, subkeys, and fingerprints) required for
-PGP signature verification.
+PGP signature verification. For SSH keys, the `key.SSHPublic` provider verifies
+signatures in the SSH signature format.
 
 Signing operations take a `key.PrivateKeyProvider`. This abstraction handles
 key pairs. You can generate keys using the `key.Generator` object. The library
-supports ECDSA, RSA, ed25519, and GPG/OpenPGP key formats.
+supports ECDSA, RSA, ed25519, GPG/OpenPGP and SSH key formats.
+
+SSH keys sign and verify in the SSH signature format, the one `ssh-keygen -Y
+sign` produces. See [docs/ssh-keys.md](docs/ssh-keys.md).
 
 ## Status
 
@@ -147,12 +151,12 @@ is now implemented in the signer module. The main verifier exposes functions to
 sign and verify DSSE envelopes and their payloads.
 
 The library also includes a `key` package that handles public key parsing and
-signature verification. GPG/OpenPGP key blocks are supported for both parsing
-and DSSE envelope verification.
+signature verification. GPG/OpenPGP key blocks and SSH keys are supported for
+both parsing and DSSE envelope verification.
 
 Key identity matching (via `MatchesKeyIdentity`) compares identities using
 their key ID and type. Identities defined with only raw key material (including
-GPG key blocks) are automatically normalized — the key data is parsed to
+GPG key blocks and SSH public keys) are automatically normalized — the key data is parsed to
 extract the ID and type before matching.
 
 ### Upcoming Features

@@ -23,8 +23,8 @@ type Parser struct{}
 
 type KeyParseOptions struct {
 	Scheme Scheme
-	// Passphrase decrypts encrypted GPG private keys. Plain-text PEM
-	// private keys ignore this field. Empty + encrypted key + parser
+	// Passphrase decrypts encrypted GPG and SSH private keys. Plain-text
+	// PEM private keys ignore this field. Empty + encrypted key + parser
 	// invocation is an error.
 	Passphrase string
 	// SSHNamespace is the namespace of the signatures made with SSH
@@ -43,7 +43,7 @@ func WithScheme(scheme Scheme) FnOpt {
 }
 
 // WithPassphrase supplies a passphrase used to decrypt encrypted
-// private keys (currently only GPG-armored encrypted keys).
+// private keys (GPG-armored and OpenSSH encrypted keys).
 func WithPassphrase(passphrase string) FnOpt {
 	return func(kpo *KeyParseOptions) {
 		kpo.Passphrase = passphrase

@@ -60,7 +60,9 @@ _, err := api.NewIdentityFromPrincipal("sigstore(regexp)::https://.*::.*@example
   parsed identity has only `Id` and `Type` populated; `Data` is *not*
   encoded in a principal. `IdentityKey.Normalize()` is **not** called
   automatically — if a caller wants `Id`/`Type` derived from `Data`,
-  they invoke it explicitly.
+  they invoke it explicitly. For SSH keys the id is the fingerprint of
+  the key (`key::ed25519::SHA256:nzPv/9uw…`); its case is significant
+  and is kept as written.
 
 - **Ref.** A single colon (`ref:<id>`), not the double `::`. References
   are placeholders — the calling layer must resolve them to a concrete

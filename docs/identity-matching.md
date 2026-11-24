@@ -25,7 +25,7 @@ An `Identity` carries exactly one variant:
 | Variant    | Go type             | Used when                                                                              |
 | ---------- | ------------------- | -------------------------------------------------------------------------------------- |
 | `Sigstore` | `*IdentitySigstore` | Signer is a Fulcio-issued cert (OIDC-backed).                                          |
-| `Key`      | `*IdentityKey`      | Signer is a raw public key (RSA / ECDSA / Ed25519 / GPG).                              |
+| `Key`      | `*IdentityKey`      | Signer is a raw public key (RSA / ECDSA / Ed25519 / GPG / SSH).                        |
 | `Spiffe`   | `*IdentitySpiffe`   | Signer is an X.509-SVID from a SPIFFE/SPIRE trust domain.                              |
 | `Ref`      | `*IdentityRef`      | Placeholder pointing to an identity defined elsewhere (e.g., at a policy-set level).   |
 
@@ -228,9 +228,9 @@ policies.
 
 | Field                       | Meaning                                                                                        |
 | --------------------------- | ---------------------------------------------------------------------------------------------- |
-| `Id`                        | Primary identifier (hash-derived hex id, or GPG primary fingerprint).                          |
+| `Id`                        | Primary identifier (hash-derived hex id, GPG primary fingerprint, or SSH fingerprint).         |
 | `Type`                      | Scheme string (e.g. `rsa`, `ecdsa-sha2-nistp256`, `ed25519`). Optional.                        |
-| `Data`                      | PEM public key / OpenPGP armored block — used for normalization, never matched directly.      |
+| `Data`                      | PEM public key / OpenPGP armored block / SSH public key line — used for normalization, never matched directly. |
 | `SigningFingerprint`        | GPG subkey fingerprint that produced the signature. Optional on policy; populated on signers. |
 | `IdMatch`                   | `StringMatcher` applied to `Id` **OR** `SigningFingerprint` (disjunction preserved).          |
 | `TypeMatch`                 | `StringMatcher` applied to `Type` — strict (always evaluated when set).                       |
@@ -251,7 +251,11 @@ anything.
 ### Matching rules
 
 String comparisons on legacy `Id` and `SigningFingerprint` are
-**case-insensitive** (hex fingerprints appear in both cases).
+**case-insensitive** (hex fingerprints appear in both cases), with one
+exception: SSH fingerprints (`SHA256:…`) are base64, where case carries
+information, so when either side is one the comparison is **exact**.
+The `SHA256:` prefix is part of the comparison, and a fingerprint
+written with a lowercase prefix never matches.
 `StringMatcher` case-insensitivity is opt-in via the
 `case_insensitive` flag.
 
@@ -259,7 +263,7 @@ For each signer:
 
 1. **Id dimension** (required via `Id` or `IdMatch`):
    - Legacy `Id`: must equal `signer.Id` or `signer.SigningFingerprint`
-     (case-insensitive).
+     (case-insensitive; exact for SSH fingerprints).
    - `IdMatch`: applied against `signer.Id` or `signer.SigningFingerprint`;
      accepts if either passes (preserves the disjunction semantic).
 2. **Type** (optional):
@@ -267,7 +271,7 @@ For each signer:
    - `TypeMatch`: strict — when set, the signer's type must satisfy
      it regardless of whether the signer has a type at all.
 3. **Signing fingerprint pin** (optional):
-   - Legacy `SigningFingerprint`: case-insensitive exact pin.
+   - Legacy `SigningFingerprint`: exact pin, compared the way `Id` is.
    - `SigningFingerprintMatch`: strict when set.
 
 ### GPG: the three policy shapes
@@ -285,6 +289,23 @@ and — when the signature was made by a subkey — a subkey fingerprint
 All three work identically with `IdMatch` and `SigningFingerprintMatch`
 if you want pattern semantics (e.g. any fingerprint with a given
 prefix).
+
+### SSH keys
+
+A signer that used an SSH key has the fingerprint of the key as its
+`Id`, written the way OpenSSH prints it (`SHA256:` and the base64 of the
+hash), and the scheme of the underlying key as its `Type`. It has no
+`SigningFingerprint`.
+
+A policy names the key by that fingerprint, or carries the line of the
+`.pub` file in `Data` and lets normalization derive it:
+
+```go
+&IdentityKey{Id: "SHA256:nzPv/9uwC5nIic8SUw3EYVUOPycf1vDtFcpSar/D7QU"}
+&IdentityKey{Data: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICHIc/Qxgy2hOWMpP4qUdEZpc11c1KpEda8EVnXiRQJg"}
+```
+
+See [ssh-keys.md](ssh-keys.md) for the rest.
 
 ## SPIFFE identities
 
@@ -397,6 +418,7 @@ Principal form: `ref:<id>`.
 | A GPG primary, any subkey                                    | `Key{Id: <primary FP>}`                                                            |
 | A specific GPG subkey                                        | `Key{Id: <subkey FP>}`                                                             |
 | A GPG primary *and* a specific subkey                        | `Key{Id: <primary FP>, SigningFingerprint: <subkey FP>}`                           |
+| An SSH key                                                   | `Key{Id: "SHA256:…"}` (exact, case-sensitive)                                      |
 | A specific SPIFFE workload                                   | `Spiffe{Svid: "spiffe://td/path"}`                                                 |
 | Any workload in a SPIFFE trust domain                        | `Spiffe{TrustDomainMatch: exact}`                                                  |
 | A reference defined elsewhere                                | `Ref{Id}` (caller must resolve)                                                    |

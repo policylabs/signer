@@ -32,7 +32,7 @@ type KeysSign struct {
 
 	// PassphraseEnvVar names an environment variable whose value (when
 	// set and non-empty) is used to decrypt encrypted signing keys
-	// (currently only encrypted GPG private keys). Bound to
+	// (encrypted GPG and SSH private keys). Bound to
 	// --signing-key-passphrase-env.
 	PassphraseEnvVar string
 
@@ -96,7 +96,7 @@ func (k *KeysSign) Config() *command.OptionsSetConfig {
 				flagSigningKey: {
 					Short: "K",
 					Long:  flagSigningKey,
-					Help:  "path to a private signing key file (PEM PKCS#8/PKCS#1/SEC1 or OpenPGP)",
+					Help:  "path to a private signing key file (PEM PKCS#8/PKCS#1/SEC1, OpenPGP or OpenSSH)",
 				},
 				flagSigningKeyPassphraseEnv: {
 					Long: flagSigningKeyPassphraseEnv,
@@ -258,8 +258,8 @@ func readPEMCertificates(path string) ([]*x509.Certificate, error) {
 
 // ParseSigningKeys reads and parses every entry in PrivateKeyPaths
 // and returns the resulting providers prepended with AddKeys-supplied
-// extras. Encrypted GPG keys are decrypted using the passphrase read
-// from PassphraseEnvVar when set. SSH keys are set to sign under
+// extras. Encrypted GPG and SSH keys are decrypted using the passphrase
+// read from PassphraseEnvVar when set. SSH keys are set to sign under
 // SSHNamespace; keys supplied with AddKeys are left as they are.
 func (k *KeysSign) ParseSigningKeys() ([]key.PrivateKeyProvider, error) {
 	parser := key.NewParser()
