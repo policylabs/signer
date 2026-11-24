@@ -568,18 +568,44 @@ func matchString(m *StringMatcher, value string) bool {
 	}
 }
 
+// sshFingerprintPrefix opens the fingerprint of an SSH key, which is the
+// id of the keys extracted from one: "SHA256:" followed by the base64 of
+// the hash.
+const sshFingerprintPrefix = "SHA256:"
+
+// keyIDsEqual compares two key ids or fingerprints.
+//
+// Most ids are hex strings (a GPG fingerprint, the hash of a plain key)
+// and compare without regard to case. SSH fingerprints are base64, where
+// case carries information, so when either side is one the comparison is
+// exact. The prefix itself is recognized in any case: a fingerprint
+// written with a lowercase prefix does not fall back to the
+// case-insensitive comparison.
+func keyIDsEqual(a, b string) bool {
+	if isSSHFingerprint(a) || isSSHFingerprint(b) {
+		return a == b
+	}
+	return strings.EqualFold(a, b)
+}
+
+func isSSHFingerprint(id string) bool {
+	return len(id) >= len(sshFingerprintPrefix) && strings.EqualFold(id[:len(sshFingerprintPrefix)], sshFingerprintPrefix)
+}
+
 // MatchesKeyIdentity returns true if one of the verified signatures was
 // performed with the specified key. Matching rules:
 //
 //   - Id (required via legacy field OR IdMatch): compared against both
 //     the signer's primary key Id and its signing subkey fingerprint —
 //     an expected identity can name a GPG signer by either. Legacy Id
-//     is case-insensitive; IdMatch follows its StringMatcher
+//     is case-insensitive, except for SSH fingerprints ("SHA256:..."),
+//     which are compared exactly; IdMatch follows its StringMatcher
 //     configuration.
 //   - Type (optional, legacy): narrows the match when both sides set it.
 //     An unset signer type skips the check. TypeMatch (new) is strict:
 //     when set, the signer's type must satisfy it.
-//   - SigningFingerprint (optional, legacy): case-insensitive exact pin.
+//   - SigningFingerprint (optional, legacy): exact pin, compared the
+//     way Id is.
 //     SigningFingerprintMatch (new) is strict when set.
 //
 // If the identity has Data but no Id, Normalize is called first.
@@ -625,7 +651,7 @@ func keyCheck(keyIdentity *IdentityKey) (func(*Identity) bool, bool) {
 		signerType := strings.TrimSpace(signerKeyData.GetType())
 
 		if id != "" {
-			if !strings.EqualFold(id, signerID) && !strings.EqualFold(id, signerSubFP) {
+			if !keyIDsEqual(id, signerID) && !keyIDsEqual(id, signerSubFP) {
 				return false
 			}
 		}
@@ -638,7 +664,7 @@ func keyCheck(keyIdentity *IdentityKey) (func(*Identity) bool, bool) {
 		if typeMatch != nil && !matchString(typeMatch, signerType) {
 			return false
 		}
-		if signingFP != "" && !strings.EqualFold(signerSubFP, signingFP) {
+		if signingFP != "" && !keyIDsEqual(signerSubFP, signingFP) {
 			return false
 		}
 		if sfpMatch != nil && !matchString(sfpMatch, signerSubFP) {
