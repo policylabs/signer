@@ -166,7 +166,7 @@ cannot be changed afterwards.
 - **Signing** uses `file` unless told otherwise: with
   `key.WithSSHNamespace` when parsing the key, with the `Namespace`
   field of a `key.SSHPrivate`, or with the
-  `--signing-key-ssh-namespace` flag, which also applies to the keys
+  `--signing-ssh-namespace` flag, which also applies to the keys
   held by an SSH agent.
 - **Verifying** accepts any namespace. The signature is verified under
   the namespace it declares, which is never compared to an expected

@@ -88,12 +88,12 @@ func TestKeysSignSSHNamespace(t *testing.T) {
 		k := DefaultKeysSign()
 		cmd := &cobra.Command{Use: "test"}
 		k.AddFlags(cmd)
-		flag := cmd.PersistentFlags().Lookup("signing-key-ssh-namespace")
+		flag := cmd.PersistentFlags().Lookup("signing-ssh-namespace")
 		require.NotNil(t, flag)
 		require.Equal(t, "file", flag.DefValue)
 
 		require.NoError(t, cmd.PersistentFlags().Parse([]string{
-			"--signing-key-ssh-namespace=git",
+			"--signing-ssh-namespace=git",
 			"--signing-key=" + writeSSHPrivateKey(t),
 			"--signing-key=" + writeECPrivateKey(t),
 			"--signing-key=" + writeSSHPrivateKey(t),

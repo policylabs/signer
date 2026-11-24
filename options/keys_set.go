@@ -39,7 +39,7 @@ type KeysSign struct {
 
 	// SSHNamespace is the namespace of the signatures made with SSH
 	// signing keys, a label that says what the signatures are for.
-	// Bound to --signing-key-ssh-namespace. Signing keys of other
+	// Bound to --signing-ssh-namespace. Signing keys of other
 	// formats ignore it. When empty, SSH keys sign under
 	// key.DefaultSSHNamespace.
 	SSHNamespace string
@@ -84,7 +84,7 @@ const defaultPassphraseEnvVar = "SIGNING_KEY_PASSPHRASE"
 const (
 	flagSigningKey              = "signing-key"
 	flagSigningKeyPassphraseEnv = "signing-key-passphrase-env"
-	flagSigningKeySSHNamespace  = "signing-key-ssh-namespace"
+	flagSigningSSHNamespace     = "signing-ssh-namespace"
 	flagSigningSSHAgentKey      = "signing-ssh-agent-key"
 	flagSigningCert             = "signing-cert"
 	flagSigningCertChain        = "signing-cert-chain"
@@ -115,8 +115,8 @@ func (k *KeysSign) Config() *command.OptionsSetConfig {
 					Long: flagSigningKeyPassphraseEnv,
 					Help: "envvar to read the signing key passphrase from",
 				},
-				flagSigningKeySSHNamespace: {
-					Long: flagSigningKeySSHNamespace,
+				flagSigningSSHNamespace: {
+					Long: flagSigningSSHNamespace,
 					Help: "namespace of the signatures made with SSH signing keys",
 				},
 				flagSigningSSHAgentKey: {
@@ -156,9 +156,9 @@ func (k *KeysSign) AddFlags(cmd *cobra.Command) {
 	)
 	pf.StringVar(
 		&k.SSHNamespace,
-		cfg.LongFlag(flagSigningKeySSHNamespace),
+		cfg.LongFlag(flagSigningSSHNamespace),
 		k.SSHNamespace,
-		cfg.HelpText(flagSigningKeySSHNamespace),
+		cfg.HelpText(flagSigningSSHNamespace),
 	)
 	pf.StringSliceVar(
 		&k.SSHAgentKeys,
