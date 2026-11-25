@@ -16,6 +16,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/sign"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/policylabs/signer/internal/httpretry"
 	"github.com/policylabs/signer/options"
 	"github.com/policylabs/signer/sigstore"
 )
@@ -109,13 +110,8 @@ func (bs *DefaultSigner) BuildBundleOptions(opts *options.Signer, cp CredentialP
 		}
 
 		for _, tsaURL := range tsaURLs {
-			tsaOpts := &sign.TimestampAuthorityOptions{
-				URL:     tsaURL.URL,
-				Timeout: 30 * time.Second,
-				Retries: 1,
-			}
 			bundleOptions.TimestampAuthorities = append(
-				bundleOptions.TimestampAuthorities, sign.NewTimestampAuthority(tsaOpts),
+				bundleOptions.TimestampAuthorities, newTimestampAuthority(tsaURL.URL),
 			)
 		}
 	}
@@ -125,16 +121,31 @@ func (bs *DefaultSigner) BuildBundleOptions(opts *options.Signer, cp CredentialP
 			return nil, fmt.Errorf("signing config not set; required when AppendToRekor is enabled")
 		}
 		for _, rekorURL := range opts.SigningConfig.RekorLogURLs() {
+			// The Rekor client retries failed connections as well as
+			// the answers that say to try again.
 			rekorOpts := &sign.RekorOptions{
 				BaseURL: rekorURL.URL,
 				Timeout: 90 * time.Second,
-				Retries: 1,
+				Retries: httpretry.Retries,
 			}
 			bundleOptions.TransparencyLogs = append(bundleOptions.TransparencyLogs, sign.NewRekor(rekorOpts))
 		}
 	}
 
 	return &bundleOptions, nil
+}
+
+// newTimestampAuthority returns a client of the timestamp authority at
+// url that rides out its passing failures: answers that say to try again
+// (5xx and 429) are retried by the client itself, connections that fail
+// by the transport.
+func newTimestampAuthority(url string) *sign.TimestampAuthority {
+	return sign.NewTimestampAuthority(&sign.TimestampAuthorityOptions{
+		URL:       url,
+		Timeout:   30 * time.Second,
+		Retries:   httpretry.Retries,
+		Transport: httpretry.NewTransport(),
+	})
 }
 
 // tsaOnlySigningConfig builds a sigstore SigningConfig containing
