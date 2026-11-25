@@ -293,13 +293,24 @@ func isSelfSigned(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawIssuer, cert.RawSubject)
 }
 
-// runAmbientSTS iterates over the configured STS providers and returns the
-// first token one of them yields, or nil when no provider has credentials.
+// runAmbientSTS tries the registered STS providers in their order (see
+// sts.Ordered) and returns the first token one of them yields, or nil when
+// no provider has credentials.
 func (p *CredentialProvider) runAmbientSTS(ctx context.Context) (*oauthflow.OIDCIDToken, error) {
-	for k, provider := range sts.Providers() {
-		token, err := provider.Provide(ctx, p.Instance.OIDCConfig.ClientID)
+	return firstAmbientToken(ctx, sts.Ordered(), p.Instance.OIDCConfig.ClientID)
+}
+
+// firstAmbientToken tries providers one after the other and returns the
+// first token one of them yields, or nil when none has credentials.
+//
+// A provider that fails ends the search: its environment is there but
+// broken, and signing with the identity of another provider instead would
+// hide that. Providers after the one that yields a token are not tried.
+func firstAmbientToken(ctx context.Context, providers []sts.Named, audience string) (*oauthflow.OIDCIDToken, error) {
+	for _, named := range providers {
+		token, err := named.Provider.Provide(ctx, audience)
 		if err != nil {
-			return nil, fmt.Errorf("trying ambient credentials from %s: %w", k, err)
+			return nil, fmt.Errorf("trying ambient credentials from %s: %w", named.Name, err)
 		}
 		if token != nil {
 			return token, nil
