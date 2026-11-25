@@ -5,7 +5,10 @@ package sts
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/sigstore/sigstore/pkg/oauthflow"
@@ -95,6 +98,39 @@ func Ordered() []Named {
 		out = append(out, Named{Name: name, Provider: DefaultProviders[name]})
 	}
 	return out
+}
+
+// Select returns the registered providers with the given names, in the
+// order the names are given. It is how a caller limits the ambient
+// credentials to the providers it expects, or tries them in an order of
+// its own.
+//
+// Without names, Select returns all the providers in the default order,
+// as Ordered does. A name that is not registered, or that is given more
+// than once, is an error.
+func Select(names ...string) ([]Named, error) {
+	if len(names) == 0 {
+		return Ordered(), nil
+	}
+
+	mtx.RLock()
+	defer mtx.RUnlock()
+
+	out := make([]Named, 0, len(names))
+	for i, name := range names {
+		if slices.Contains(names[:i], name) {
+			return nil, fmt.Errorf("STS provider %q is listed more than once", name)
+		}
+		p, ok := DefaultProviders[name]
+		if !ok {
+			registered := slices.Sorted(maps.Keys(DefaultProviders))
+			return nil, fmt.Errorf(
+				"unknown STS provider %q (registered: %s)", name, strings.Join(registered, ", "),
+			)
+		}
+		out = append(out, Named{Name: name, Provider: p})
+	}
+	return out, nil
 }
 
 // Providers returns a snapshot of the registered STS providers, safe to

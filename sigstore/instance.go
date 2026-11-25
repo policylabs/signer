@@ -40,6 +40,12 @@ type Instance struct {
 	AppendToRekor bool `json:"rekor-append"`
 	DisableSTS    bool
 
+	// STSProviders names the STS providers to look for ambient
+	// credentials in, in the order they are tried. No other provider is
+	// consulted. When empty, all the registered providers are tried in
+	// their default order (see sts.Ordered).
+	STSProviders []string `json:"-"`
+
 	// Hide the OIDC options in the CLI --help
 	HideOIDCOptions bool
 	// FlagPrefix adds a prefix to the CLI strings, these help grouping them

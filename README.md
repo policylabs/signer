@@ -55,6 +55,32 @@ falling back to an interactive OIDC flow. On Google Cloud the signer can also
 impersonate a dedicated signing service account instead of signing as the
 workload's own identity, see [docs/gcp-identity.md](docs/gcp-identity.md).
 
+The providers are tried one after the other, always in the same order, and
+the first one with a token wins:
+
+| Order | Name      | Looks for |
+| ----- | --------- | --------- |
+| 1     | `actions` | the ID token of a GitHub Actions job |
+| 2     | `gitlab`  | the ID token of a GitLab CI job |
+| 3     | `gcp`     | a Google Cloud service account key or the metadata server |
+
+Providers added with `sts.RegisterProvider` come after these, in the order
+they were registered. A provider whose environment is there but broken fails
+the signing: the signer does not move on to sign with another identity.
+
+More than one provider can have credentials, a GitHub Actions job on a
+self-hosted runner in Google Cloud for example. To sign only with the
+identity you expect, name the providers to use. No other provider is
+consulted, and they are tried in the order you give:
+
+```golang
+s := signer.NewSigner()
+s.Options.STSProviders = []string{"actions"}
+```
+
+Command line tools built on the options sets take the same list in
+`--sigstore-sts-providers=actions`.
+
 ## Dead Simple Signing Envelope (DSSE)
 
 Initial support for DSSE has been implemented since v0.2.0. The library can sign

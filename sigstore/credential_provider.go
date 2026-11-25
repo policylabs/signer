@@ -38,6 +38,12 @@ type CredentialProvider struct {
 	// DisableSTS skips the ambient credential providers.
 	DisableSTS bool
 
+	// STSProviders names the ambient credential providers to try, in
+	// order. No other provider is consulted. When empty, all the
+	// registered providers are tried in their default order (see
+	// sts.Ordered).
+	STSProviders []string
+
 	// Token is an optional pre-provided OIDC ID token. When set, Prepare skips
 	// the ambient STS providers; the token still flows through OIDConnect so
 	// that it is parsed/validated the same way as a freshly issued one.
@@ -293,11 +299,16 @@ func isSelfSigned(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawIssuer, cert.RawSubject)
 }
 
-// runAmbientSTS tries the registered STS providers in their order (see
-// sts.Ordered) and returns the first token one of them yields, or nil when
-// no provider has credentials.
+// runAmbientSTS tries the STS providers and returns the first token one of
+// them yields, or nil when no provider has credentials. The providers are
+// the ones named in STSProviders, in that order, or all the registered ones
+// in their default order (see sts.Ordered) when none is named.
 func (p *CredentialProvider) runAmbientSTS(ctx context.Context) (*oauthflow.OIDCIDToken, error) {
-	return firstAmbientToken(ctx, sts.Ordered(), p.Instance.OIDCConfig.ClientID)
+	providers, err := sts.Select(p.STSProviders...)
+	if err != nil {
+		return nil, err
+	}
+	return firstAmbientToken(ctx, providers, p.Instance.OIDCConfig.ClientID)
 }
 
 // firstAmbientToken tries providers one after the other and returns the

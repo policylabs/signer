@@ -104,3 +104,56 @@ func TestFirstAmbientToken(t *testing.T) {
 		require.Nil(t, token)
 	})
 }
+
+// TestRunAmbientSTSProviders checks that the providers named in
+// STSProviders are the only ones asked, in the order they are named.
+//
+// It registers providers in the registry, which is global: it does not
+// run in parallel, so no other test sees them.
+func TestRunAmbientSTSProviders(t *testing.T) { //nolint:paralleltest // global registry
+	calls := []string{}
+	register := func(name string, token *oauthflow.OIDCIDToken) {
+		sts.RegisterProvider(name, &recordingProvider{name: name, token: token, calls: &calls})
+		t.Cleanup(func() { sts.UnregisterProvider(name, nil) })
+	}
+	tokenB := &oauthflow.OIDCIDToken{RawString: "b"}
+	tokenC := &oauthflow.OIDCIDToken{RawString: "c"}
+	register("test-a", nil)
+	register("test-b", tokenB)
+	register("test-c", tokenC)
+
+	newProvider := func(names ...string) *CredentialProvider {
+		return &CredentialProvider{
+			Instance:     &Instance{OIDCConfig: OIDCConfig{ClientID: "aud"}},
+			STSProviders: names,
+		}
+	}
+
+	for _, tc := range []struct {
+		name   string
+		names  []string
+		expect *oauthflow.OIDCIDToken
+		asked  []string
+	}{
+		{"one", []string{"test-c"}, tokenC, []string{"test-c/aud"}},
+		{"in-the-order-given", []string{"test-c", "test-b"}, tokenC, []string{"test-c/aud"}},
+		{"reversed", []string{"test-a", "test-b", "test-c"}, tokenB, []string{"test-a/aud", "test-b/aud"}},
+		{"none-has-credentials", []string{"test-a"}, nil, []string{"test-a/aud"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) { //nolint:paralleltest // global registry
+			calls = calls[:0]
+			token, err := newProvider(tc.names...).runAmbientSTS(t.Context())
+			require.NoError(t, err)
+			require.Same(t, tc.expect, token)
+			require.Equal(t, tc.asked, calls)
+		})
+	}
+
+	t.Run("unknown-provider", func(t *testing.T) { //nolint:paralleltest // global registry
+		calls = calls[:0]
+		_, err := newProvider("test-a", "test-nope").runAmbientSTS(t.Context())
+		require.ErrorContains(t, err, `unknown STS provider "test-nope"`)
+		// Nobody is asked when the list is wrong.
+		require.Empty(t, calls)
+	})
+}

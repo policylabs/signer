@@ -92,6 +92,7 @@ The default constructor namespaces every flag under `sigstore-`. Pass
 | `--sigstore-rekor-append`       | record the signature in the Rekor transparency log |
 | `--sigstore-timestamp`          | attach a TSA-signed timestamp |
 | `--sigstore-disable-sts`        | skip the STS token exchange |
+| `--sigstore-sts-providers`      | STS providers to get ambient credentials from, in the order to try them (`actions`, `gitlab`, `gcp`; default: all, in that order). No other provider is consulted. Cannot be combined with `--sigstore-disable-sts` |
 
 The OIDC flags are hidden by default (the embedded defaults work for
 the public sigstore instance); flip `HideOIDCOptions` to surface them.

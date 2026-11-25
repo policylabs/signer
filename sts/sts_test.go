@@ -131,3 +131,46 @@ func TestProvidersSnapshot(t *testing.T) { //nolint:paralleltest // global regis
 	require.Contains(t, Providers(), "later")
 	require.Len(t, Ordered(), 4)
 }
+
+func TestSelect(t *testing.T) { //nolint:paralleltest // global registry
+	restoreRegistry(t)
+	RegisterProvider("extra", &fakeProvider{})
+
+	selected := func(t *testing.T, names ...string) []string {
+		t.Helper()
+		providers, err := Select(names...)
+		require.NoError(t, err)
+		out := make([]string, 0, len(providers))
+		for _, named := range providers {
+			require.Same(t, DefaultProviders[named.Name], named.Provider)
+			out = append(out, named.Name)
+		}
+		return out
+	}
+
+	// No names: everything, in the default order.
+	require.Equal(t, []string{"actions", "gitlab", "gcp", "extra"}, selected(t))
+
+	// Names limit the providers and set their order.
+	require.Equal(t, []string{"actions"}, selected(t, "actions"))
+	require.Equal(t, []string{"gcp", "actions"}, selected(t, "gcp", "actions"))
+	require.Equal(t, []string{"extra", "gcp", "gitlab", "actions"}, selected(t, "extra", "gcp", "gitlab", "actions"))
+
+	_, err := Select("actions", "nope")
+	require.ErrorContains(t, err, `unknown STS provider "nope"`)
+	require.ErrorContains(t, err, "registered: actions, extra, gcp, gitlab")
+
+	_, err = Select("actions", "gcp", "actions")
+	require.ErrorContains(t, err, `"actions" is listed more than once`)
+
+	// Names are matched as they are.
+	_, err = Select("Actions")
+	require.Error(t, err)
+	_, err = Select("")
+	require.Error(t, err)
+
+	// A provider that is gone cannot be selected.
+	UnregisterProvider("extra", nil)
+	_, err = Select("extra")
+	require.Error(t, err)
+}

@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/carabiner-dev/command"
 	"github.com/spf13/cobra"
 
 	"github.com/policylabs/signer/sigstore"
+	"github.com/policylabs/signer/sts"
 )
 
 // SigstoreCommon holds the flag-bound sigstore roots configuration shared
@@ -161,6 +163,13 @@ type SigstoreSign struct {
 	Timestamp   bool
 	DisableSTS  bool
 
+	// STSProviders names the STS providers to look for ambient
+	// credentials in, in the order they are tried. No other provider is
+	// consulted. Bound to --<prefix>-sts-providers. When empty, all the
+	// registered providers are tried in their default order (see
+	// sts.Ordered).
+	STSProviders []string
+
 	// HideOIDCOptions marks the --oidc-* flags as hidden on the CLI.
 	HideOIDCOptions bool
 
@@ -191,6 +200,7 @@ const (
 	flagRekorAppend      = "rekor-append"
 	flagTimestamp        = "timestamp"
 	flagDisableSTS       = "disable-sts"
+	flagSTSProviders     = "sts-providers"
 )
 
 // DefaultSigstoreSign builds a SigstoreSign with sensible defaults
@@ -223,6 +233,7 @@ func (s *SigstoreSign) Config() *command.OptionsSetConfig {
 				flagRekorAppend:      {Long: flagRekorAppend, Help: "record the signature in the Rekor transparency log"},
 				flagTimestamp:        {Long: flagTimestamp, Help: "attach a TSA-signed timestamp to the signature"},
 				flagDisableSTS:       {Long: flagDisableSTS, Help: "skip the STS token exchange"},
+				flagSTSProviders:     {Long: flagSTSProviders, Help: "STS providers to get ambient credentials from, in the order to try them (default: all)"},
 			},
 		}
 	}
@@ -246,6 +257,7 @@ func (s *SigstoreSign) AddFlags(cmd *cobra.Command) {
 		pf.BoolVar(&s.Timestamp, cfg.LongFlag(flagTimestamp), s.Timestamp, cfg.HelpText(flagTimestamp))
 	}
 	pf.BoolVar(&s.DisableSTS, cfg.LongFlag(flagDisableSTS), s.DisableSTS, cfg.HelpText(flagDisableSTS))
+	pf.StringSliceVar(&s.STSProviders, cfg.LongFlag(flagSTSProviders), s.STSProviders, cfg.HelpText(flagSTSProviders))
 
 	if s.HideOIDCOptions {
 		for _, id := range []string{flagOIDCClientID, flagOIDCRedirectURL, flagOIDCClientSecret, flagOIDCTokenFile} {
@@ -265,6 +277,18 @@ func (s *SigstoreSign) Validate() error {
 	}
 	if _, err := s.Instance(s.InstanceName); err != nil {
 		return err
+	}
+	if len(s.STSProviders) > 0 {
+		if s.DisableSTS {
+			cfg := s.Config()
+			return fmt.Errorf(
+				"--%s and --%s cannot be used together",
+				cfg.LongFlag(flagSTSProviders), cfg.LongFlag(flagDisableSTS),
+			)
+		}
+		if _, err := sts.Select(s.STSProviders...); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -311,6 +335,7 @@ func (s *SigstoreSign) ResolveInstance() (*sigstore.Instance, error) {
 	inst.AppendToRekor = s.RekorAppend
 	inst.Timestamp = s.Timestamp
 	inst.DisableSTS = s.DisableSTS
+	inst.STSProviders = slices.Clone(s.STSProviders)
 	inst.HideOIDCOptions = s.HideOIDCOptions
 	if s.OIDCClientID != "" {
 		inst.OIDCConfig.ClientID = s.OIDCClientID
