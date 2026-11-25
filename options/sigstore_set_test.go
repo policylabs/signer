@@ -143,6 +143,7 @@ func TestSigstoreSignAddFlags(t *testing.T) {
 			"rekor-append",
 			"timestamp",
 			"disable-sts",
+			"sts-providers",
 		} {
 			require.NotNil(t, cmd.PersistentFlags().Lookup(name), "flag %s must be registered", name)
 		}
@@ -285,6 +286,28 @@ func TestSigstoreSignResolveInstance(t *testing.T) {
 		require.True(t, inst.DisableSTS)
 	})
 
+	t.Run("sts-providers", func(t *testing.T) {
+		t.Parallel()
+		s := DefaultSigstoreSign(nil)
+		inst, err := s.ResolveInstance()
+		require.NoError(t, err)
+		require.Empty(t, inst.STSProviders, "no provider is named by default")
+
+		cmd := &cobra.Command{Use: "test"}
+		s.AddFlags(cmd)
+		require.NoError(t, cmd.PersistentFlags().Parse([]string{"--sts-providers=gcp,actions"}))
+		require.NoError(t, s.Validate())
+
+		inst, err = s.ResolveInstance()
+		require.NoError(t, err)
+		require.Equal(t, []string{"gcp", "actions"}, inst.STSProviders)
+
+		// The names reach the credential provider the signer builds.
+		target := &Signer{}
+		require.NoError(t, s.ApplyToSigner(target))
+		require.Equal(t, []string{"gcp", "actions"}, target.BuildSigstoreCredentials().STSProviders)
+	})
+
 	t.Run("explicit-instance-name", func(t *testing.T) {
 		t.Parallel()
 		s := DefaultSigstoreSign(nil)
@@ -341,6 +364,40 @@ func TestSigstoreSignValidate(t *testing.T) {
 	})
 }
 
+func TestSigstoreSignValidateSTSProviders(t *testing.T) {
+	t.Parallel()
+
+	t.Run("known", func(t *testing.T) {
+		t.Parallel()
+		s := DefaultSigstoreSign(nil)
+		s.STSProviders = []string{"actions"}
+		require.NoError(t, s.Validate())
+	})
+
+	t.Run("unknown", func(t *testing.T) {
+		t.Parallel()
+		s := DefaultSigstoreSign(nil)
+		s.STSProviders = []string{"actions", "nope"}
+		require.ErrorContains(t, s.Validate(), `unknown STS provider "nope"`)
+	})
+
+	t.Run("twice", func(t *testing.T) {
+		t.Parallel()
+		s := DefaultSigstoreSign(nil)
+		s.STSProviders = []string{"gcp", "gcp"}
+		require.ErrorContains(t, s.Validate(), "more than once")
+	})
+
+	t.Run("with-disable-sts", func(t *testing.T) {
+		t.Parallel()
+		set := DefaultSigstoreSignSet("sigstore")
+		set.Sign.STSProviders = []string{"actions"}
+		set.Sign.DisableSTS = true
+		require.ErrorContains(t, set.Validate(),
+			"--sigstore-sts-providers and --sigstore-disable-sts cannot be used together")
+	})
+}
+
 func TestSigstoreVerifyValidate(t *testing.T) {
 	t.Parallel()
 
@@ -394,6 +451,7 @@ func TestSigstoreSignSet(t *testing.T) {
 			"sigstore-rekor-append",
 			"sigstore-timestamp",
 			"sigstore-disable-sts",
+			"sigstore-sts-providers",
 		} {
 			require.NotNil(t, cmd.PersistentFlags().Lookup(name), "flag %s must be registered", name)
 		}

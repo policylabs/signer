@@ -30,8 +30,17 @@ With a key, the provider signs a JWT-bearer assertion with the key and
 exchanges it at Google's token endpoint for an identity token. If the
 key fails, it falls back to the metadata server unless
 `gcp.WithAmbientCredentials(false)` disabled it. When no source yields a
-token the provider reports no token and the signer moves on to the
-other ambient providers (GitHub Actions, GitLab CI).
+token the provider reports no token.
+
+The signer tries its ambient providers in a fixed order, and `gcp` comes
+after GitHub Actions and GitLab CI: a CI job that has an ID token of its
+own signs with it, even on a runner hosted in Google Cloud. To sign such
+a job with the Google identity instead, name the provider:
+
+```golang
+s := signer.NewSigner()
+s.Options.STSProviders = []string{"gcp"}
+```
 
 ## Impersonation
 

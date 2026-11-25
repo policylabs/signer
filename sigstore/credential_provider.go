@@ -23,6 +23,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/sign"
 	"github.com/sigstore/sigstore/pkg/oauthflow"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/term"
 
 	"github.com/policylabs/signer/sts"
@@ -37,6 +38,12 @@ type CredentialProvider struct {
 
 	// DisableSTS skips the ambient credential providers.
 	DisableSTS bool
+
+	// STSProviders names the ambient credential providers to try, in
+	// order. No other provider is consulted. When empty, all the
+	// registered providers are tried in their default order (see
+	// sts.Ordered).
+	STSProviders []string
 
 	// Token is an optional pre-provided OIDC ID token. When set, Prepare skips
 	// the ambient STS providers; the token still flows through OIDConnect so
@@ -293,18 +300,39 @@ func isSelfSigned(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawIssuer, cert.RawSubject)
 }
 
-// runAmbientSTS iterates over the configured STS providers and returns the
-// first token one of them yields, or nil when no provider has credentials.
+// runAmbientSTS tries the STS providers and returns the first token one of
+// them yields, or nil when no provider has credentials. The providers are
+// the ones named in STSProviders, in that order, or all the registered ones
+// in their default order (see sts.Ordered) when none is named.
 func (p *CredentialProvider) runAmbientSTS(ctx context.Context) (*oauthflow.OIDCIDToken, error) {
-	for k, provider := range sts.Providers() {
-		token, err := provider.Provide(ctx, p.Instance.OIDCConfig.ClientID)
+	providers, err := sts.Select(p.STSProviders...)
+	if err != nil {
+		return nil, err
+	}
+	return firstAmbientToken(ctx, providers, p.Instance.OIDCConfig.ClientID)
+}
+
+// firstAmbientToken tries providers one after the other and returns the
+// first token one of them yields, or nil when none has credentials.
+//
+// A provider that fails ends the search: its environment is there but
+// broken, and signing with the identity of another provider instead would
+// hide that. Providers after the one that yields a token are not tried.
+//
+// The name of the provider that yields the token is logged at the debug
+// level. The token is not.
+func firstAmbientToken(ctx context.Context, providers []sts.Named, audience string) (*oauthflow.OIDCIDToken, error) {
+	for _, named := range providers {
+		token, err := named.Provider.Provide(ctx, audience)
 		if err != nil {
-			return nil, fmt.Errorf("trying ambient credentials from %s: %w", k, err)
+			return nil, fmt.Errorf("trying ambient credentials from %s: %w", named.Name, err)
 		}
 		if token != nil {
+			logrus.Debugf("using ambient credentials from the %s STS provider", named.Name)
 			return token, nil
 		}
 	}
+	logrus.Debugf("no ambient credentials found (%d STS providers tried)", len(providers))
 	return nil, nil
 }
 
