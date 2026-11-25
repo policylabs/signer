@@ -23,6 +23,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/sign"
 	"github.com/sigstore/sigstore/pkg/oauthflow"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/term"
 
 	"github.com/policylabs/signer/sts"
@@ -317,6 +318,9 @@ func (p *CredentialProvider) runAmbientSTS(ctx context.Context) (*oauthflow.OIDC
 // A provider that fails ends the search: its environment is there but
 // broken, and signing with the identity of another provider instead would
 // hide that. Providers after the one that yields a token are not tried.
+//
+// The name of the provider that yields the token is logged at the debug
+// level. The token is not.
 func firstAmbientToken(ctx context.Context, providers []sts.Named, audience string) (*oauthflow.OIDCIDToken, error) {
 	for _, named := range providers {
 		token, err := named.Provider.Provide(ctx, audience)
@@ -324,9 +328,11 @@ func firstAmbientToken(ctx context.Context, providers []sts.Named, audience stri
 			return nil, fmt.Errorf("trying ambient credentials from %s: %w", named.Name, err)
 		}
 		if token != nil {
+			logrus.Debugf("using ambient credentials from the %s STS provider", named.Name)
 			return token, nil
 		}
 	}
+	logrus.Debugf("no ambient credentials found (%d STS providers tried)", len(providers))
 	return nil, nil
 }
 

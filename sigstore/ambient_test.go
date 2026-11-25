@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/sigstore/sigstore/pkg/oauthflow"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/policylabs/signer/sts"
@@ -156,4 +158,46 @@ func TestRunAmbientSTSProviders(t *testing.T) { //nolint:paralleltest // global 
 		// Nobody is asked when the list is wrong.
 		require.Empty(t, calls)
 	})
+}
+
+// TestFirstAmbientTokenLogs checks that the provider the token came from
+// is logged, and the token is not.
+//
+// It hooks into the global logger: it does not run in parallel.
+func TestFirstAmbientTokenLogs(t *testing.T) { //nolint:paralleltest // global logger
+	hook := logrustest.NewGlobal()
+	level := logrus.GetLevel()
+	logrus.SetLevel(logrus.DebugLevel)
+	t.Cleanup(func() {
+		logrus.SetLevel(level)
+		logrus.StandardLogger().ReplaceHooks(logrus.LevelHooks{})
+	})
+
+	calls := []string{}
+	providers := []sts.Named{
+		{Name: "first", Provider: &recordingProvider{name: "first", calls: &calls}},
+		{Name: "second", Provider: &recordingProvider{
+			name: "second", token: &oauthflow.OIDCIDToken{RawString: "secret-token"}, calls: &calls,
+		}},
+	}
+
+	messages := func() []string {
+		entries := hook.AllEntries()
+		out := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			require.Equal(t, logrus.DebugLevel, entry.Level)
+			require.NotContains(t, entry.Message, "secret-token")
+			out = append(out, entry.Message)
+		}
+		hook.Reset()
+		return out
+	}
+
+	_, err := firstAmbientToken(t.Context(), providers, "aud")
+	require.NoError(t, err)
+	require.Equal(t, []string{"using ambient credentials from the second STS provider"}, messages())
+
+	_, err = firstAmbientToken(t.Context(), providers[:1], "aud")
+	require.NoError(t, err)
+	require.Equal(t, []string{"no ambient credentials found (1 STS providers tried)"}, messages())
 }
