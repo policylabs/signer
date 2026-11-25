@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/term"
 
+	"github.com/policylabs/signer/internal/httpretry"
 	"github.com/policylabs/signer/sts"
 )
 
@@ -124,13 +125,7 @@ func (p *CredentialProvider) Prepare(ctx context.Context) error {
 
 	// Wrap Fulcio with a validity-window cache so repeated signs with the
 	// same identity reuse the certificate until it expires.
-	p.cp = &cachingCertProvider{
-		inner: sign.NewFulcio(&sign.FulcioOptions{
-			BaseURL: fulcioURL,
-			Timeout: 30 * time.Second,
-			Retries: 1,
-		}),
-	}
+	p.cp = &cachingCertProvider{inner: newFulcio(fulcioURL)}
 
 	p.prepared = true
 	return nil
@@ -298,6 +293,18 @@ func parseLeafAndChain(chainDER [][]byte) (leaf *x509.Certificate, chain []*x509
 // hallmark of a trust-anchor root.
 func isSelfSigned(cert *x509.Certificate) bool {
 	return bytes.Equal(cert.RawIssuer, cert.RawSubject)
+}
+
+// newFulcio returns a client of the Fulcio instance at baseURL that rides out
+// its passing failures: answers that say to try again (5xx and 429) are
+// retried by the client itself, connections that fail by the transport.
+func newFulcio(baseURL string) *sign.Fulcio {
+	return sign.NewFulcio(&sign.FulcioOptions{
+		BaseURL:   baseURL,
+		Timeout:   30 * time.Second,
+		Retries:   httpretry.Retries,
+		Transport: httpretry.NewTransport(),
+	})
 }
 
 // runAmbientSTS tries the STS providers and returns the first token one of
